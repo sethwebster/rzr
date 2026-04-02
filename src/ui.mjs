@@ -21,15 +21,24 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0d1117;
-        --panel: #161b22;
-        --panel-2: #1f2937;
-        --border: #30363d;
-        --text: #e6edf3;
-        --muted: #8b949e;
-        --accent: #2f81f7;
-        --accent-2: #238636;
-        --danger: #da3633;
+        --bg: #070b11;
+        --bg-2: #0b111b;
+        --panel: rgba(12, 18, 28, 0.92);
+        --panel-2: rgba(16, 23, 35, 0.92);
+        --panel-3: rgba(20, 28, 42, 0.96);
+        --panel-4: rgba(10, 15, 24, 0.88);
+        --border: rgba(148, 163, 184, 0.16);
+        --border-strong: rgba(148, 163, 184, 0.24);
+        --text: #e8eef6;
+        --muted: #93a1b4;
+        --accent: #4f8cff;
+        --accent-strong: #2f81f7;
+        --accent-soft: rgba(79, 140, 255, 0.18);
+        --success: #2fbf71;
+        --success-soft: rgba(47, 191, 113, 0.18);
+        --danger: #ff6b6b;
+        --danger-soft: rgba(255, 107, 107, 0.16);
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
         --mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
         --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
@@ -38,21 +47,39 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         box-sizing: border-box;
       }
 
+      html,
       body {
         margin: 0;
+        height: 100%;
         min-height: 100vh;
         min-height: 100dvh;
+      }
+
+      body {
+        overflow: hidden;
         background:
-          radial-gradient(circle at top, rgba(47, 129, 247, 0.18), transparent 30%),
-          linear-gradient(180deg, #0d1117 0%, #090c10 100%);
+          radial-gradient(circle at top, rgba(79, 140, 255, 0.22), transparent 28%),
+          radial-gradient(circle at bottom, rgba(47, 191, 113, 0.09), transparent 24%),
+          linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 100%);
         color: var(--text);
         font-family: var(--sans);
       }
 
+      button,
+      textarea,
+      input {
+        font: inherit;
+      }
+
+      button {
+        appearance: none;
+        cursor: pointer;
+      }
+
       .app {
         width: 100%;
-        min-height: 100vh;
-        min-height: 100dvh;
+        height: 100vh;
+        height: 100dvh;
       }
 
       .card {
@@ -60,12 +87,9 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         display: flex;
         flex-direction: column;
         width: 100%;
-        min-height: 100vh;
-        min-height: 100dvh;
-        background: rgba(22, 27, 34, 0.92);
-        border: 0;
-        border-radius: 0;
-        box-shadow: none;
+        height: 100%;
+        min-height: 0;
+        background: linear-gradient(180deg, rgba(12, 18, 28, 0.9), rgba(8, 12, 19, 0.98));
         overflow: hidden;
       }
 
@@ -81,6 +105,8 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           14px
           calc(16px + env(safe-area-inset-left));
         border-bottom: 1px solid var(--border);
+        background: rgba(7, 11, 17, 0.68);
+        backdrop-filter: blur(18px);
       }
 
       .title {
@@ -88,10 +114,30 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         gap: 4px;
       }
 
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), #9fc0ff);
+        box-shadow: 0 0 18px rgba(79, 140, 255, 0.65);
+      }
+
       .title h1 {
         margin: 0;
-        font-size: 16px;
-        line-height: 1.2;
+        font-size: 17px;
+        line-height: 1.15;
       }
 
       .title p {
@@ -100,48 +146,258 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         font-size: 12px;
       }
 
-      .badges {
+      .header-meta {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
       }
 
-      .badge {
-        padding: 6px 10px;
+      .header-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+        padding: 0 12px;
         border-radius: 999px;
         border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.02);
-        font-size: 12px;
+        background: rgba(255, 255, 255, 0.04);
         color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
       }
 
       .screen-wrap {
         flex: 1 1 auto;
         min-height: 0;
-        padding: 0;
+        padding: 12px calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+      }
+
+      .screen-shell {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+          var(--panel);
+        box-shadow: var(--shadow);
+        overflow: hidden;
       }
 
       .screen {
+        flex: 1 1 auto;
+        min-height: 0;
         margin: 0;
-        height: 100%;
         overflow: auto;
-        padding: 16px calc(16px + env(safe-area-inset-right)) 16px calc(16px + env(safe-area-inset-left));
-        font: 13px/1.35 var(--mono);
+        padding: 18px;
+        font: 13px/1.45 var(--mono);
         white-space: pre-wrap;
         word-break: break-word;
         overscroll-behavior: contain;
       }
 
       .controls {
+        flex: 0 0 auto;
         display: grid;
         gap: 12px;
-        padding:
-          14px
-          calc(12px + env(safe-area-inset-right))
-          calc(16px + env(safe-area-inset-bottom))
-          calc(12px + env(safe-area-inset-left));
+        padding: 12px;
         border-top: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.02);
+        background:
+          linear-gradient(180deg, rgba(7, 11, 17, 0.08), rgba(7, 11, 17, 0.92) 24%),
+          rgba(7, 11, 17, 0.94);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.28);
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .toolbar-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .toolbar-group-main {
+        margin-right: 4px;
+      }
+
+      .toolbar button {
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        transition:
+          transform 120ms ease,
+          border-color 120ms ease,
+          background 120ms ease,
+          box-shadow 120ms ease;
+      }
+
+      .toolbar button.primary {
+        background: linear-gradient(180deg, #5f99ff 0%, var(--accent-strong) 100%);
+        border-color: rgba(95, 153, 255, 0.78);
+        box-shadow: 0 10px 24px rgba(47, 129, 247, 0.25);
+      }
+
+      .toolbar button.success {
+        background: linear-gradient(180deg, #31cc7a 0%, #218a51 100%);
+        border-color: rgba(49, 204, 122, 0.65);
+        box-shadow: 0 10px 24px rgba(47, 191, 113, 0.2);
+      }
+
+      .toolbar button.danger {
+        background: rgba(255, 107, 107, 0.12);
+        border-color: rgba(255, 107, 107, 0.3);
+        color: #ffc3c3;
+      }
+
+      .composer-shell {
+        display: grid;
+        gap: 10px;
+        margin: 0 -12px;
+        padding: 10px 12px 0;
+        border-top: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(20, 28, 42, 0.58), rgba(10, 15, 24, 0.9));
+      }
+
+      .composer-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        align-items: baseline;
+        justify-content: space-between;
+        min-width: 0;
+        padding: 0 12px;
+      }
+
+      .composer-label {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .composer-label strong {
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .composer-label span,
+      .composer-meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .composer-meta {
+        max-width: 100%;
+        text-align: right;
+      }
+
+      textarea,
+      input {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid var(--border-strong);
+        background: var(--panel-3);
+        color: var(--text);
+      }
+
+      textarea {
+        min-height: 108px;
+        padding: 14px 16px;
+        resize: vertical;
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+        font: 14px/1.45 var(--mono);
+      }
+
+      input {
+        padding: 12px;
+        font-size: 14px;
+      }
+
+      textarea::placeholder,
+      input::placeholder {
+        color: color-mix(in srgb, var(--muted) 88%, white 12%);
+      }
+
+      textarea:focus,
+      input:focus,
+      button:focus-visible {
+        outline: none;
+        border-color: rgba(95, 153, 255, 0.7);
+        box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.16);
+      }
+
+      .statusbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px 14px;
+        min-width: 0;
+        padding: 2px 2px 0;
+      }
+
+      .status-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+      }
+
+      .status-group-meta {
+        justify-content: flex-end;
+        flex: 1 1 320px;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .status-pill::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.95;
+        box-shadow: 0 0 10px currentColor;
+      }
+
+      .status-copy {
+        color: var(--muted);
+        font-size: 12px;
+        max-width: 100%;
+        overflow-wrap: anywhere;
       }
 
       .gate {
@@ -150,8 +406,8 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         display: grid;
         place-items: center;
         padding: 20px;
-        background: rgba(9, 12, 16, 0.88);
-        backdrop-filter: blur(8px);
+        background: rgba(6, 10, 16, 0.84);
+        backdrop-filter: blur(10px);
         z-index: 10;
       }
 
@@ -164,9 +420,10 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         display: grid;
         gap: 12px;
         padding: 18px;
-        border-radius: 16px;
+        border-radius: 18px;
         border: 1px solid var(--border);
-        background: rgba(22, 27, 34, 0.96);
+        background: rgba(16, 23, 35, 0.96);
+        box-shadow: var(--shadow);
       }
 
       .gate-card h2,
@@ -184,82 +441,54 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         line-height: 1.4;
       }
 
-      textarea,
-      input {
-        width: 100%;
-        padding: 12px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        background: var(--panel-2);
-        color: var(--text);
+      .error {
+        min-height: 18px;
+        color: #ffb0b0;
+        font-size: 12px;
       }
 
-      textarea {
-        min-height: 92px;
-        resize: vertical;
-        font: 14px/1.4 var(--mono);
+      .status-ok {
+        color: #7fe3a9;
+        border-color: rgba(47, 191, 113, 0.34);
+        background: var(--success-soft);
       }
 
-      input {
-        font: 14px/1.2 var(--sans);
-      }
-
-      .row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      button {
-        flex: 1 1 calc(33.333% - 8px);
-        min-height: 42px;
-        border: 1px solid var(--border);
-        background: #21262d;
-        color: var(--text);
-        border-radius: 12px;
-        padding: 10px 12px;
-        font: 600 13px/1 var(--sans);
-      }
-
-      button.primary {
-        background: var(--accent);
-        border-color: rgba(47, 129, 247, 0.7);
-      }
-
-      button.success {
-        background: var(--accent-2);
-        border-color: rgba(35, 134, 54, 0.7);
-      }
-
-      button.danger {
-        background: var(--danger);
-        border-color: rgba(218, 54, 51, 0.7);
+      .status-bad {
+        color: #ff9c9c;
+        border-color: rgba(255, 107, 107, 0.34);
+        background: var(--danger-soft);
       }
 
       button:disabled,
       textarea:disabled,
       input:disabled {
-        opacity: 0.55;
+        cursor: not-allowed;
+        opacity: 0.5;
       }
 
-      .hint {
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.35;
+      @media (hover: hover) {
+        .toolbar button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          border-color: rgba(255, 255, 255, 0.24);
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .toolbar button.primary:hover:not(:disabled) {
+          background: linear-gradient(180deg, #73a6ff 0%, #3c86ef 100%);
+        }
+
+        .toolbar button.success:hover:not(:disabled) {
+          background: linear-gradient(180deg, #3cd888 0%, #23955a 100%);
+        }
+
+        .toolbar button.danger:hover:not(:disabled) {
+          background: rgba(255, 107, 107, 0.18);
+          border-color: rgba(255, 107, 107, 0.42);
+        }
       }
 
-      .status-ok {
-        color: #3fb950;
-      }
-
-      .status-bad {
-        color: #ff7b72;
-      }
-
-      .error {
-        min-height: 18px;
-        color: #ff7b72;
-        font-size: 12px;
+      .toolbar button:active:not(:disabled) {
+        transform: translateY(0);
       }
 
       @media (min-width: 720px) {
@@ -267,17 +496,25 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           padding: 18px 24px 16px;
         }
 
+        .screen-wrap {
+          padding: 16px 24px 20px;
+        }
+
         .screen {
-          padding: 20px 24px;
+          padding: 22px 24px;
           font-size: 14px;
         }
 
         .controls {
-          padding: 16px 24px 24px;
+          padding: 14px 14px 12px;
         }
 
-        button {
-          flex: 0 1 auto;
+        .composer-shell {
+          margin: 0 -14px;
+        }
+
+        .composer-head {
+          padding: 0 14px;
         }
       }
     </style>
@@ -297,45 +534,69 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         <header class="header">
           <div class="title">
+            <span class="eyebrow">rzr remote</span>
             <h1>${title}</h1>
             <p id="subtitle">Connecting…</p>
           </div>
-          <div class="badges">
-            <span class="badge" id="conn">offline</span>
-            <span class="badge" id="proc">loading</span>
+          <div class="header-meta">
+            <span class="header-chip">${readonly ? "Read-only relay" : "Live control surface"}</span>
           </div>
         </header>
 
         <div class="screen-wrap">
-          <pre class="screen" id="screen"></pre>
-        </div>
+          <section class="screen-shell">
+            <pre class="screen" id="screen"></pre>
 
-        <section class="controls">
-          <textarea
-            id="composer"
-            placeholder="Type text to paste into the wrapped process"
-            ${readonly ? "disabled" : ""}
-          ></textarea>
-          <div class="row">
-            <button class="primary" id="send" ${readonly ? "disabled" : ""}>Paste</button>
-            <button class="success" id="sendEnter" ${readonly ? "disabled" : ""}>Paste + Enter</button>
-            <button id="enter" ${readonly ? "disabled" : ""}>Enter</button>
-            <button id="tab" ${readonly ? "disabled" : ""}>Tab</button>
-            <button class="danger" id="ctrlc" ${readonly ? "disabled" : ""}>Ctrl+C</button>
-            <button id="ctrld" ${readonly ? "disabled" : ""}>Ctrl+D</button>
-          </div>
-          <div class="row">
-            <button id="esc" ${readonly ? "disabled" : ""}>Esc</button>
-            <button id="up" ${readonly ? "disabled" : ""}>Up</button>
-            <button id="down" ${readonly ? "disabled" : ""}>Down</button>
-            <button id="left" ${readonly ? "disabled" : ""}>Left</button>
-            <button id="right" ${readonly ? "disabled" : ""}>Right</button>
-          </div>
-          <p class="hint">
-            Works best for shells, REPLs, Claude, Codex, or any other terminal app launched through tmux.
-            ${readonly ? "This session is read-only." : "Multiple phones can watch the same session."}
-          </p>
-        </section>
+            <section class="controls">
+              <div class="toolbar" aria-label="Terminal controls">
+                <div class="toolbar-group toolbar-group-main">
+                  <button class="primary" id="send" ${readonly ? "disabled" : ""}>Paste</button>
+                  <button class="success" id="sendEnter" ${readonly ? "disabled" : ""}>Paste + Enter</button>
+                </div>
+                <div class="toolbar-group">
+                  <button id="enter" ${readonly ? "disabled" : ""}>Enter</button>
+                  <button id="tab" ${readonly ? "disabled" : ""}>Tab</button>
+                  <button class="danger" id="ctrlc" ${readonly ? "disabled" : ""}>Ctrl+C</button>
+                  <button id="ctrld" ${readonly ? "disabled" : ""}>Ctrl+D</button>
+                </div>
+                <div class="toolbar-group">
+                  <button id="esc" ${readonly ? "disabled" : ""}>Esc</button>
+                  <button id="up" ${readonly ? "disabled" : ""}>↑</button>
+                  <button id="down" ${readonly ? "disabled" : ""}>↓</button>
+                  <button id="left" ${readonly ? "disabled" : ""}>←</button>
+                  <button id="right" ${readonly ? "disabled" : ""}>→</button>
+                </div>
+              </div>
+
+              <div class="composer-shell">
+                <div class="composer-head">
+                  <div class="composer-label">
+                    <strong>Paste buffer</strong>
+                    <span>Queue text for the wrapped process</span>
+                  </div>
+                  <div class="composer-meta" id="composerMeta">${readonly ? "Read-only session" : "Buffer empty"}</div>
+                </div>
+                <textarea
+                  id="composer"
+                  placeholder="Type text to paste into the wrapped process"
+                  ${readonly ? "disabled" : ""}
+                ></textarea>
+              </div>
+
+              <div class="statusbar">
+                <div class="status-group">
+                  <span class="status-pill status-bad" id="conn">offline</span>
+                  <span class="status-pill status-bad" id="proc">loading</span>
+                  <span class="status-pill ${readonly ? "status-bad" : "status-ok"}">${readonly ? "read only" : "interactive"}</span>
+                </div>
+                <div class="status-group status-group-meta">
+                  <span class="status-copy">${readonly ? "Viewing only." : "⌘/Ctrl + Enter sends and hits Enter."}</span>
+                  <span class="status-copy">Built for tmux-backed shells and REPLs.</span>
+                </div>
+              </div>
+            </section>
+          </section>
+        </div>
       </section>
     </main>
 
@@ -348,6 +609,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       const conn = document.getElementById("conn");
       const proc = document.getElementById("proc");
       const composer = document.getElementById("composer");
+      const composerMeta = document.getElementById("composerMeta");
       const send = document.getElementById("send");
       const sendEnter = document.getElementById("sendEnter");
       const gate = document.getElementById("gate");
@@ -362,12 +624,33 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
       function setConn(label, ok) {
         conn.textContent = label;
-        conn.className = "badge " + (ok ? "status-ok" : "status-bad");
+        conn.className = "status-pill " + (ok ? "status-ok" : "status-bad");
       }
 
       function setProc(label, ok) {
         proc.textContent = label;
-        proc.className = "badge " + (ok ? "status-ok" : "status-bad");
+        proc.className = "status-pill " + (ok ? "status-ok" : "status-bad");
+      }
+
+      function updateComposerMeta() {
+        if (!composerMeta || !composer) {
+          return;
+        }
+
+        const length = composer.value.length;
+        if (readonly) {
+          composerMeta.textContent = "Read-only session";
+          return;
+        }
+
+        composerMeta.textContent = length
+          ? String(length) + " char" + (length === 1 ? "" : "s") + " ready"
+          : "Buffer empty";
+      }
+
+      function clearComposer() {
+        composer.value = "";
+        updateComposerMeta();
       }
 
       function setGateVisible(visible, error = "") {
@@ -415,11 +698,19 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           return;
         }
 
-        await post("/api/input", { text: value });
+        const response = await post("/api/input", { text: value });
+        const payload = await response.json();
+        if (payload.snapshot) {
+          renderSnapshot(payload.snapshot);
+        }
       }
 
       async function pressKey(key) {
-        await post("/api/key", { key });
+        const response = await post("/api/key", { key });
+        const payload = await response.json();
+        if (payload.snapshot) {
+          renderSnapshot(payload.snapshot);
+        }
       }
 
       async function pasteAndEnter(value) {
@@ -572,15 +863,17 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
       });
 
+      composer.addEventListener("input", updateComposerMeta);
+
       if (!readonly) {
         send.addEventListener("click", async () => {
           await pasteText(composer.value);
-          composer.value = "";
+          clearComposer();
         });
 
         sendEnter.addEventListener("click", async () => {
           await pasteAndEnter(composer.value);
-          composer.value = "";
+          clearComposer();
         });
 
         const keys = {
@@ -597,7 +890,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         for (const [id, key] of Object.entries(keys)) {
           document.getElementById(id).addEventListener("click", async () => {
-            await post("/api/key", { key });
+            await pressKey(key);
           });
         }
 
@@ -605,11 +898,12 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
             await pasteAndEnter(composer.value);
-            composer.value = "";
+            clearComposer();
           }
         });
       }
 
+      updateComposerMeta();
       boot();
     </script>
   </body>

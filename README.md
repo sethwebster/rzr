@@ -62,6 +62,7 @@ Start with a public Cloudflare tunnel:
 
 ```bash
 ./rzr run --tunnel -- codex
+./rzr run --tunnel --tunnel-name my-remote -- codex
 ```
 
 or:
@@ -86,6 +87,12 @@ Provider order is:
 - installed `ngrok`
 - `npx localtunnel`
 
+Tunnel naming behavior:
+
+- `cloudflared`: if authenticated and `--tunnel-name` looks like a hostname on a Cloudflare-managed zone, `rzr` will try a stable named tunnel first; otherwise it uses the name as Quick Tunnel metadata/label
+- `ngrok`: passes the name to ngrok as the tunnel name
+- `localtunnel`: requests the name as the public subdomain
+
 List tmux sessions:
 
 ```bash
@@ -105,5 +112,6 @@ Open that URL on your phone.
 - `Ctrl+C` warns that the tmux session will keep running, then lets you keep it, kill it, or continue serving.
 - The target process remains in tmux, so you can reconnect later with `rzr attach <session>`.
 - `--tunnel` prefers `cloudflared`, then `ngrok`, then falls back to `npx localtunnel`, and tears the chosen tunnel down when `rzr` exits.
+- `--tunnel-name` lets you request a provider-level tunnel name. With authenticated Cloudflare and a hostname-shaped value, `rzr` will try a stable Cloudflare hostname before falling back to Quick Tunnel mode.
 - `--password` adds a second gate in front of the remote UI and API. The password is passed on the command line, so it will appear in shell history and process listings.
 - For truly arbitrary “observe an existing process that was not launched in tmux” support, you need OS-specific session snooping. This project intentionally stays thin and reliable by standardizing on tmux.

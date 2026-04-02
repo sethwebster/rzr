@@ -318,7 +318,7 @@ export async function createRemoteServer({
         const { text: value } = JSON.parse(await readBody(request) || "{}");
         await sendText(target, typeof value === "string" ? value : "");
         await refreshSnapshot();
-        json(response, 200, { ok: true });
+        json(response, 200, { ok: true, snapshot });
       } catch (error) {
         json(response, 400, { error: error.message });
       }
@@ -338,7 +338,7 @@ export async function createRemoteServer({
         }
         await sendKey(target, key);
         await refreshSnapshot();
-        json(response, 200, { ok: true });
+        json(response, 200, { ok: true, snapshot });
       } catch (error) {
         json(response, 400, { error: error.message });
       }
@@ -355,7 +355,7 @@ export async function createRemoteServer({
         const { cols, rows } = JSON.parse(await readBody(request) || "{}");
         await resizeSession(target, Number(cols), Number(rows));
         await refreshSnapshot();
-        json(response, 200, { ok: true });
+        json(response, 200, { ok: true, snapshot });
       } catch (error) {
         json(response, 400, { error: error.message });
       }

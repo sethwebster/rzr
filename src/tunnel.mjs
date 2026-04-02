@@ -1,8 +1,12 @@
+import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const CLOUDFLARE_URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 const NGROK_URL_RE = /url=(https:\/\/[^\s]+)/i;
 const GENERIC_HTTPS_URL_RE = /https:\/\/[^\s"'`]+/i;
+const CLOUDFLARE_READY_RE = /(registered tunnel connection|connection .+ registered|starting metrics server|initial protocol)/i;
 
 function commandExists(command, args = ["--version"]) {
   return new Promise((resolve) => {
@@ -122,20 +126,74 @@ function makeTunnelProcess({ provider, command, args, parsePublicUrl, startupTim
   };
 }
 
-function startCloudflaredTunnel(localUrl) {
+function sanitizeTunnelName(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+}
+
+function looksLikeHostname(value) {
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(String(value).trim());
+}
+
+function hasCloudflareOriginCert() {
+  return existsSync(join(homedir(), ".cloudflared", "cert.pem"));
+}
+
+function startCloudflaredNamedTunnel(localUrl, hostname) {
+  const stableTunnelName = sanitizeTunnelName(hostname);
+
   return makeTunnelProcess({
     provider: "cloudflared",
     command: "cloudflared",
-    args: ["tunnel", "--no-autoupdate", "--url", localUrl],
+    args: [
+      "tunnel",
+      "--no-autoupdate",
+      "--url",
+      localUrl,
+      "--name",
+      stableTunnelName,
+      "--hostname",
+      hostname,
+    ],
+    parsePublicUrl: (chunk, logs) => {
+      if (CLOUDFLARE_READY_RE.test(chunk) || CLOUDFLARE_READY_RE.test(logs)) {
+        return `https://${hostname}`;
+      }
+
+      return null;
+    },
+    startupTimeoutMs: 30000,
+  });
+}
+
+function startCloudflaredQuickTunnel(localUrl, tunnelName) {
+  const args = ["tunnel", "--no-autoupdate", "--url", localUrl];
+  if (tunnelName) {
+    args.push("--label", `rzr-name=${tunnelName}`);
+  }
+
+  return makeTunnelProcess({
+    provider: "cloudflared",
+    command: "cloudflared",
+    args,
     parsePublicUrl: (chunk) => chunk.match(CLOUDFLARE_URL_RE)?.[0] || null,
   });
 }
 
-function startNgrokTunnel(localUrl) {
+function startNgrokTunnel(localUrl, tunnelName) {
+  const args = ["http", localUrl, "--log", "stdout", "--log-format", "logfmt"];
+  if (tunnelName) {
+    args.push("--name", tunnelName);
+  }
+
   return makeTunnelProcess({
     provider: "ngrok",
     command: "ngrok",
-    args: ["http", localUrl, "--log", "stdout", "--log-format", "logfmt"],
+    args,
     parsePublicUrl: (chunk, logs) => {
       const urlFromLogfmt = chunk.match(NGROK_URL_RE)?.[1];
       if (urlFromLogfmt) {
@@ -148,11 +206,17 @@ function startNgrokTunnel(localUrl) {
   });
 }
 
-function startLocaltunnel(port) {
+function startLocaltunnel(port, tunnelName) {
+  const args = ["--yes", "localtunnel", "--port", String(port)];
+  const subdomain = tunnelName ? sanitizeTunnelName(tunnelName) : "";
+  if (subdomain) {
+    args.push("--subdomain", subdomain);
+  }
+
   return makeTunnelProcess({
     provider: "localtunnel",
     command: "npx",
-    args: ["--yes", "localtunnel", "--port", String(port)],
+    args,
     startupTimeoutMs: 30000,
     parsePublicUrl: (chunk, logs) => {
       const anyHttps = chunk.match(GENERIC_HTTPS_URL_RE)?.[0]
@@ -163,18 +227,22 @@ function startLocaltunnel(port) {
   });
 }
 
-export async function startBestTunnel({ localUrl, port }) {
+export async function startBestTunnel({ localUrl, port, tunnelName = "" }) {
   const candidates = [];
 
   if (await commandExists("cloudflared")) {
-    candidates.push(() => startCloudflaredTunnel(localUrl));
+    if (tunnelName && looksLikeHostname(tunnelName) && hasCloudflareOriginCert()) {
+      candidates.push(() => startCloudflaredNamedTunnel(localUrl, tunnelName));
+    }
+
+    candidates.push(() => startCloudflaredQuickTunnel(localUrl, tunnelName));
   }
 
   if (await commandExists("ngrok")) {
-    candidates.push(() => startNgrokTunnel(localUrl));
+    candidates.push(() => startNgrokTunnel(localUrl, tunnelName));
   }
 
-  candidates.push(() => startLocaltunnel(port));
+  candidates.push(() => startLocaltunnel(port, tunnelName));
 
   const errors = [];
 

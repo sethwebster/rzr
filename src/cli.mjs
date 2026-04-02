@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import process from "node:process";
 import { createRemoteServer, makeToken } from "./server.mjs";
 import { startBestTunnel } from "./tunnel.mjs";
+import { checkForUpdate, isUpdateCheckEnabled } from "./update.mjs";
 import {
   createSession,
   ensureTmux,
@@ -11,18 +15,23 @@ import {
   listSessions,
 } from "./tmux.mjs";
 
+const CLI_DIR = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_JSON = JSON.parse(readFileSync(join(CLI_DIR, "..", "package.json"), "utf8"));
+const VERSION = PACKAGE_JSON.version;
+
 function printUsage() {
   console.log(`rzr
 
 Usage:
-  rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--password VALUE] -- <command...>
-  rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--password VALUE]
+  rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE] -- <command...>
+  rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE]
   rzr list
 
 Examples:
   rzr run -- codex
   rzr run --name claude -- claude
   rzr run --tunnel -- codex
+  rzr run --tunnel --tunnel-name my-remote -- codex
   rzr run --password secret -- codex
   rzr run --cwd /Users/me/project -- /bin/zsh
   rzr attach claude
@@ -87,6 +96,12 @@ function parseFlags(argv) {
         break;
       case "tunnel":
         flags.tunnel = true;
+        break;
+      case "tunnel-name":
+        flags.tunnelName = next;
+        if (inline == null) {
+          index += 1;
+        }
         break;
       case "password":
         flags.password = next;
@@ -165,7 +180,7 @@ async function promptForSigint(target) {
   });
 }
 
-function printServerBanner({ target, port, token, urls, tunnelUrl, tunnelProvider, passwordEnabled }) {
+function printServerBanner({ target, port, token, urls, tunnelUrl, tunnelProvider, passwordEnabled, tunnelName }) {
   console.log("");
   console.log(`Session: ${target}`);
   console.log(`Port:    ${port}`);
@@ -184,6 +199,9 @@ function printServerBanner({ target, port, token, urls, tunnelUrl, tunnelProvide
     console.log("");
     console.log(`Public tunnel (${tunnelProvider}):`);
     console.log(`  ${tunnelUrl}?token=${token}`);
+    if (tunnelName) {
+      console.log(`Requested tunnel name: ${tunnelName}`);
+    }
   }
 
   console.log("");
@@ -191,8 +209,16 @@ function printServerBanner({ target, port, token, urls, tunnelUrl, tunnelProvide
   console.log("  - Launch commands through `rzr run -- <command...>` for the cleanest remote control.");
   console.log("  - Use `rzr attach <tmux-session>` to expose an existing tmux session.");
   console.log("  - `--tunnel` prefers cloudflared, then ngrok, then falls back to `npx localtunnel`.");
+  console.log("  - `--tunnel-name` requests a provider-level name; authenticated Cloudflare can use a hostname, ngrok uses a tunnel name, and LocalTunnel uses a subdomain.");
   console.log(`  - Password gate: ${passwordEnabled ? "enabled" : "disabled"}.`);
   console.log("  - Ctrl+C warns about the tmux session and can kill it if you choose.");
+  console.log("");
+}
+
+function printUpdateNotice(update) {
+  console.log("Update available:");
+  console.log(`  rzr ${update.currentVersion} → ${update.latestVersion}`);
+  console.log(`  ${update.command}`);
   console.log("");
 }
 
@@ -202,6 +228,11 @@ async function main() {
 
   if (!command || command === "--help" || command === "-h") {
     printUsage();
+    return;
+  }
+
+  if (command === "--version" || command === "-v") {
+    console.log(VERSION);
     return;
   }
 
@@ -223,6 +254,12 @@ async function main() {
   const { flags, positionals, passthrough } = parseFlags(argv.slice(1));
   const token = makeToken();
   let target = null;
+  const updateCheck = isUpdateCheckEnabled()
+    ? checkForUpdate({
+        packageName: PACKAGE_JSON.name,
+        currentVersion: VERSION,
+      })
+    : Promise.resolve(null);
 
   if (command === "run") {
     if (!passthrough || passthrough.length === 0) {
@@ -272,6 +309,7 @@ async function main() {
     tunnel = await startBestTunnel({
       localUrl: `http://127.0.0.1:${server.port}`,
       port: server.port,
+      tunnelName: flags.tunnelName || "",
     });
     tunnelUrl = await tunnel.ready;
     tunnelProvider = tunnel.provider;
@@ -285,7 +323,16 @@ async function main() {
     tunnelUrl,
     tunnelProvider,
     passwordEnabled: Boolean(flags.password),
+    tunnelName: flags.tunnelName || "",
   });
+
+  void updateCheck
+    .then((update) => {
+      if (update) {
+        printUpdateNotice(update);
+      }
+    })
+    .catch(() => {});
 
   let shuttingDown = false;
   let promptingForExit = false;
