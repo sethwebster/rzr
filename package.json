@@ -1,6 +1,6 @@
 {
   "name": "@sethwebster/rzr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A razor-thin remote around any terminal process",
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,7 @@
     "LICENSE"
   ],
   "bin": {
-    "rzr": "./src/cli.mjs"
+    "rzr": "src/cli.mjs"
   },
   "publishConfig": {
     "access": "public"
