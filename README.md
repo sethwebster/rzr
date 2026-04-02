@@ -34,7 +34,13 @@ Start a new wrapped session:
 node ./src/cli.mjs run -- codex
 ```
 
-Or run it with `npx` once published:
+Or run it straight from GitHub with `npx`:
+
+```bash
+npx github:sethwebster/rzr run -- codex
+```
+
+Or from npm:
 
 ```bash
 npx @sethwebster/rzr run -- codex
