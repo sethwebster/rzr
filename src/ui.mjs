@@ -41,6 +41,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       body {
         margin: 0;
         min-height: 100vh;
+        min-height: 100dvh;
         background:
           radial-gradient(circle at top, rgba(47, 129, 247, 0.18), transparent 30%),
           linear-gradient(180deg, #0d1117 0%, #090c10 100%);
@@ -49,17 +50,22 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       .app {
-        width: min(100%, 920px);
-        margin: 0 auto;
-        padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+        width: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
       }
 
       .card {
         position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
         background: rgba(22, 27, 34, 0.92);
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.28);
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
         overflow: hidden;
       }
 
@@ -69,7 +75,11 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
-        padding: 14px 16px;
+        padding:
+          calc(14px + env(safe-area-inset-top))
+          calc(16px + env(safe-area-inset-right))
+          14px
+          calc(16px + env(safe-area-inset-left));
         border-bottom: 1px solid var(--border);
       }
 
@@ -106,15 +116,16 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       .screen-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
         padding: 0;
       }
 
       .screen {
         margin: 0;
-        min-height: 52vh;
-        max-height: 62vh;
+        height: 100%;
         overflow: auto;
-        padding: 16px;
+        padding: 16px calc(16px + env(safe-area-inset-right)) 16px calc(16px + env(safe-area-inset-left));
         font: 13px/1.35 var(--mono);
         white-space: pre-wrap;
         word-break: break-word;
@@ -124,7 +135,11 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       .controls {
         display: grid;
         gap: 12px;
-        padding: 14px 12px 16px;
+        padding:
+          14px
+          calc(12px + env(safe-area-inset-right))
+          calc(16px + env(safe-area-inset-bottom))
+          calc(12px + env(safe-area-inset-left));
         border-top: 1px solid var(--border);
         background: rgba(255, 255, 255, 0.02);
       }
@@ -196,6 +211,8 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       button {
+        flex: 1 1 calc(33.333% - 8px);
+        min-height: 42px;
         border: 1px solid var(--border);
         background: #21262d;
         color: var(--text);
@@ -243,6 +260,25 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         min-height: 18px;
         color: #ff7b72;
         font-size: 12px;
+      }
+
+      @media (min-width: 720px) {
+        .header {
+          padding: 18px 24px 16px;
+        }
+
+        .screen {
+          padding: 20px 24px;
+          font-size: 14px;
+        }
+
+        .controls {
+          padding: 16px 24px 24px;
+        }
+
+        button {
+          flex: 0 1 auto;
+        }
       }
     </style>
   </head>
@@ -319,6 +355,10 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       const passwordField = document.getElementById("password");
       const gateError = document.getElementById("gateError");
       let events = null;
+      let pollTimer = null;
+      let lastSnapshotRevision = -1;
+      let lastLiveEventAt = 0;
+      let authToken = "";
 
       function setConn(label, ok) {
         conn.textContent = label;
@@ -348,7 +388,9 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           headers: {
             "content-type": "application/json",
             "x-rzr-token": token,
+            ...(authToken ? { "x-rzr-auth": authToken } : {}),
           },
+          credentials: "same-origin",
           body: JSON.stringify(body),
         });
 
@@ -396,6 +438,11 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       function renderSnapshot(snapshot) {
+        if (typeof snapshot.revision === "number" && snapshot.revision <= lastSnapshotRevision) {
+          return;
+        }
+
+        lastSnapshotRevision = typeof snapshot.revision === "number" ? snapshot.revision : lastSnapshotRevision;
         const beforeHeight = screen.scrollHeight;
         screen.textContent = snapshot.screen || "";
         maybeStickToBottom(beforeHeight);
@@ -407,30 +454,76 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         setProc(missing ? "missing" : dead ? "exited" : "live", !dead && !missing);
       }
 
+      async function pollSession() {
+        try {
+          const response = await fetch("/api/session", {
+            headers: {
+              "x-rzr-token": token,
+              ...(authToken ? { "x-rzr-auth": authToken } : {}),
+            },
+            credentials: "same-origin",
+          });
+
+          if (!response.ok) {
+            return;
+          }
+
+          const session = await response.json();
+          renderSnapshot(session.snapshot);
+        } catch {
+        }
+      }
+
+      function ensurePollingFallback() {
+        if (pollTimer) {
+          clearInterval(pollTimer);
+        }
+
+        pollTimer = setInterval(() => {
+          const streamLooksStale = !lastLiveEventAt || (Date.now() - lastLiveEventAt > 4000);
+          if (streamLooksStale) {
+            pollSession();
+          }
+        }, 1500);
+      }
+
       function connectStream() {
         if (events) {
           events.close();
         }
 
-        events = new EventSource("/api/stream?token=" + encodeURIComponent(token));
+        lastLiveEventAt = Date.now();
+        const streamUrl = new URL("/api/stream", window.location.origin);
+        streamUrl.searchParams.set("token", token);
+        if (authToken) {
+          streamUrl.searchParams.set("auth", authToken);
+        }
+
+        events = new EventSource(streamUrl);
         events.addEventListener("open", () => {
+          lastLiveEventAt = Date.now();
           setConn("connected", true);
         });
 
         events.addEventListener("snapshot", (event) => {
+          lastLiveEventAt = Date.now();
           renderSnapshot(JSON.parse(event.data));
         });
 
         events.addEventListener("error", () => {
           setConn("reconnecting", false);
         });
+
+        ensurePollingFallback();
       }
 
       async function connectSession() {
         const response = await fetch("/api/session", {
           headers: {
             "x-rzr-token": token,
+            ...(authToken ? { "x-rzr-auth": authToken } : {}),
           },
+          credentials: "same-origin",
         });
 
         if (response.status === 401 && passwordRequired) {
@@ -469,7 +562,9 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         event.preventDefault();
 
         try {
-          await post("/api/login", { password: passwordField.value });
+          const response = await post("/api/login", { password: passwordField.value });
+          const payload = await response.json();
+          authToken = payload.authToken || "";
           passwordField.value = "";
           await connectSession();
         } catch (error) {

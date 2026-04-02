@@ -49,6 +49,11 @@ function getTokenFromRequest(request) {
   return request.headers["x-rzr-token"] || url.searchParams.get("token") || "";
 }
 
+function getAuthFromRequest(request) {
+  const url = new URL(request.url, "http://localhost");
+  return request.headers["x-rzr-auth"] || url.searchParams.get("auth") || "";
+}
+
 function parseCookies(cookieHeader = "") {
   return cookieHeader
     .split(";")
@@ -130,6 +135,12 @@ function broadcastSnapshot(clients, snapshot) {
   }
 }
 
+function broadcastHeartbeat(clients) {
+  for (const client of clients) {
+    client.write(`: keepalive ${Date.now()}\n\n`);
+  }
+}
+
 export function makeToken() {
   return randomBytes(18).toString("base64url");
 }
@@ -164,12 +175,19 @@ export async function createRemoteServer({
   };
   let polling = false;
   let timer = null;
+  let heartbeatTimer = null;
   const clients = new Set();
   const passwordRequired = password.length > 0;
   const authCookieValue = passwordRequired ? makeToken() : "";
+  const authTokenValue = passwordRequired ? makeToken() : "";
 
   function isAuthorized(request) {
     if (!passwordRequired) {
+      return true;
+    }
+
+    const directAuth = getAuthFromRequest(request);
+    if (directAuth && secureEqual(directAuth, authTokenValue)) {
       return true;
     }
 
@@ -255,7 +273,7 @@ export async function createRemoteServer({
         }
 
         writeAuthCookie(response);
-        json(response, 200, { ok: true, passwordRequired: true });
+        json(response, 200, { ok: true, passwordRequired: true, authToken: authTokenValue });
       } catch (error) {
         json(response, 400, { error: error.message });
       }
@@ -277,7 +295,10 @@ export async function createRemoteServer({
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-store",
         connection: "keep-alive",
+        "x-accel-buffering": "no",
       });
+      response.flushHeaders?.();
+      response.write("retry: 1000\n\n");
       response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
       clients.add(response);
 
@@ -372,6 +393,11 @@ export async function createRemoteServer({
   }, refreshIntervalMs);
   timer.unref();
 
+  heartbeatTimer = setInterval(() => {
+    broadcastHeartbeat(clients);
+  }, 15000);
+  heartbeatTimer.unref();
+
   const address = server.address();
   const effectivePort = typeof address === "object" && address ? address.port : port;
 
@@ -384,6 +410,10 @@ export async function createRemoteServer({
     close: async () => {
       if (timer) {
         clearInterval(timer);
+      }
+
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
       }
 
       for (const client of clients) {
