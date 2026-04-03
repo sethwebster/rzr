@@ -1,6 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Pressable, ScrollView, Text, TextInput, View, SafeAreaView } from '@/tw';
 
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
@@ -28,10 +33,35 @@ export default function HomeScreen() {
   const [accent, setAccent] = useState<SessionAccent>(activeSession?.accent ?? 'cyan');
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'crossfade'>('idle');
+  const [typeStartMs, setTypeStartMs] = useState(0);
 
   const recentSessions = useMemo(() => sessions.slice(0, 4), [sessions]);
 
-  const handleConnect = async () => {
+  const formOpacity = useSharedValue(1);
+  const cardScale = useSharedValue(1);
+  const [cardCenterY, setCardCenterY] = useState(0);
+  const formAnimStyle = useAnimatedStyle(() => ({
+    opacity: formOpacity.value,
+    transform: [{ scale: cardScale.value }],
+  }));
+  const handleLaunch = useCallback(() => {
+    if (phase !== 'idle') return;
+    setPhase('crossfade');
+    setTypeStartMs(Date.now());
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => null);
+    formOpacity.value = withTiming(0, { duration: 300 });
+    cardScale.value = withTiming(0, { duration: 100 });
+  }, [phase, formOpacity, cardScale]);
+
+  const resetAnim = useCallback(() => {
+    formOpacity.value = withTiming(1, { duration: 200 });
+    cardScale.value = withTiming(1, { duration: 200 });
+    setPhase('idle');
+  }, [formOpacity, cardScale]);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleConnect = async () => {
     setError(null);
     setConnecting(true);
     try {
@@ -67,120 +97,134 @@ export default function HomeScreen() {
 
   return (
     <View className="flex-1 bg-rzr-ink">
-      <StaticBackground />
+      <StaticBackground label={label || 'Connect'} labelVisible={phase === 'crossfade'} labelCenterY={cardCenterY} typeStartMs={typeStartMs} />
       <SafeAreaView edges={['top']} className="flex-1">
         <ScrollView
           contentContainerStyle={{ paddingBottom: 140 }}
-          showsVerticalScrollIndicator={false}>
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={phase === 'idle'}>
           <View className="px-6 pb-10 pt-4">
-            <LiquidGlassCard key={activeSession?.id ?? 'new'} className="bg-transparent px-5 py-5" tintColor="rgba(255,255,255,0.03)">
-              <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
-                Connect
-              </Text>
-              <Text className="mt-1 text-[14px] leading-6 text-white/56">
-                Paste a session URL to open a live bridge.
-              </Text>
+            <View
+              onLayout={(e) => {
+                e.target.measureInWindow((_x, y, _w, h) => {
+                  setCardCenterY(y + h / 2);
+                });
+              }}>
+              <Animated.View style={formAnimStyle}>
+              <LiquidGlassCard
+                key={activeSession?.id ?? 'new'}
+                className="rounded-[14px] border-0 border-transparent bg-transparent px-5 py-5"
+                tintColor="rgba(255,255,255,0.03)"
+                style={{ borderWidth: 0 }}>
+                <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
+                  Connect
+                </Text>
+                <Text className="mt-1 text-[14px] leading-6 text-white/56">
+                  Paste a session URL to open a live bridge.
+                </Text>
 
-              <View className="mt-4 gap-3">
-                <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-                  <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
-                    Label
-                  </Text>
-                  <TextInput
-                    value={label}
-                    onChangeText={setLabel}
-                    placeholder="Night Shift"
-                    placeholderTextColor="rgba(255,255,255,0.28)"
-                    className="text-[16px] text-white"
-                  />
+                <View className="mt-4 gap-3">
+                  <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
+                    <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
+                      Label
+                    </Text>
+                    <TextInput
+                      value={label}
+                      onChangeText={setLabel}
+                      placeholder="Night Shift"
+                      placeholderTextColor="rgba(255,255,255,0.28)"
+                      className="text-[16px] text-white"
+                    />
+                  </View>
+
+                  <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
+                    <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
+                      Remote URL
+                    </Text>
+                    <TextInput
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      value={remoteUrl}
+                      onChangeText={setRemoteUrl}
+                      placeholder="https://yourname.free.rzr.live/?token=..."
+                      placeholderTextColor="rgba(255,255,255,0.28)"
+                      className="text-[15px] text-white"
+                    />
+                  </View>
+
+                  <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
+                    <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
+                      Password hint
+                    </Text>
+                    <TextInput
+                      value={passwordHint}
+                      onChangeText={setPasswordHint}
+                      placeholder="Optional — not stored server-side"
+                      placeholderTextColor="rgba(255,255,255,0.28)"
+                      className="text-[15px] text-white"
+                    />
+                  </View>
                 </View>
 
-                <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-                  <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
-                    Remote URL
-                  </Text>
-                  <TextInput
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="url"
-                    value={remoteUrl}
-                    onChangeText={setRemoteUrl}
-                    placeholder="https://yourname.free.rzr.live/?token=..."
-                    placeholderTextColor="rgba(255,255,255,0.28)"
-                    className="text-[15px] text-white"
-                  />
-                </View>
-
-                <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-                  <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
-                    Password hint
-                  </Text>
-                  <TextInput
-                    value={passwordHint}
-                    onChangeText={setPasswordHint}
-                    placeholder="Optional — not stored server-side"
-                    placeholderTextColor="rgba(255,255,255,0.28)"
-                    className="text-[15px] text-white"
-                  />
-                </View>
-              </View>
-
-              <View className="mt-4 flex-row flex-wrap gap-2">
-                {ACCENTS.map((option) => {
-                  const palette = accentClasses(option);
-                  return (
-                    <Pressable
-                      key={option}
-                      onPress={() => setAccent(option)}
-                      className={cx(
-                        'rounded-full border px-3 py-2',
-                        option === accent ? palette.border : 'border-white/10',
-                        option === accent ? palette.background : 'bg-white/5',
-                      )}>
-                      <Text
+                <View className="mt-4 flex-row flex-wrap gap-2">
+                  {ACCENTS.map((option) => {
+                    const palette = accentClasses(option);
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setAccent(option)}
                         className={cx(
-                          'text-[12px] font-semibold capitalize',
-                          option === accent ? palette.text : 'text-white/56',
+                          'rounded-full border px-3 py-2',
+                          option === accent ? palette.border : 'border-white/10',
+                          option === accent ? palette.background : 'bg-white/5',
                         )}>
-                        {option}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+                        <Text
+                          className={cx(
+                            'text-[12px] font-semibold capitalize',
+                            option === accent ? palette.text : 'text-white/56',
+                          )}>
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
-              {error ? (
-                <Text className="mt-4 text-[13px] text-[#ff96cf]">{error}</Text>
-              ) : null}
+                {error ? (
+                  <Text className="mt-4 text-[13px] text-[#ff96cf]">{error}</Text>
+                ) : null}
 
-              <View className="mt-5 flex-row gap-3">
-                <PremiumButton
-                  label={connecting ? 'Connecting...' : 'Launch'}
-                  icon={connecting ? undefined : 'arrow-forward'}
-                  onPress={handleConnect}
-                  disabled={connecting}
-                  className="flex-1"
-                />
-                <PremiumButton
-                  label="Demo"
-                  icon="link"
-                  variant="secondary"
-                  className="px-4"
-                  onPress={() => {
-                    const href = buildConnectHref({
-                      label: 'Glass Demo',
-                      url: 'https://demo.free.rzr.live/?token=glass-cyan-preview',
-                      accent: 'violet',
-                      passwordHint: 'demo only',
-                    });
-                    router.push(href as never);
-                  }}
-                />
-              </View>
+                <View className="mt-5 flex-row gap-3">
+                  <PremiumButton
+                    label={connecting ? 'Connecting...' : 'Launch'}
+                    icon={connecting ? undefined : 'arrow-forward'}
+                    onPress={handleLaunch}
+                    disabled={connecting || phase !== 'idle'}
+                    className="flex-1"
+                  />
+                  <PremiumButton
+                    label="Demo"
+                    icon="link"
+                    variant="secondary"
+                    className="px-4"
+                    onPress={() => {
+                      const href = buildConnectHref({
+                        label: 'Glass Demo',
+                        url: 'https://demo.free.rzr.live/?token=glass-cyan-preview',
+                        accent: 'violet',
+                        passwordHint: 'demo only',
+                      });
+                      router.push(href as never);
+                    }}
+                  />
+                </View>
             </LiquidGlassCard>
+              </Animated.View>
+            </View>
 
             {recentSessions.length > 0 ? (
-              <View className="mt-6 gap-3">
+              <Animated.View style={formAnimStyle} className="mt-6 gap-3">
                 <Text className="text-[18px] font-semibold tracking-[-0.04em] text-white">
                   Recent
                 </Text>
@@ -228,11 +272,16 @@ export default function HomeScreen() {
                     );
                   })}
                 </View>
-              </View>
+              </Animated.View>
             ) : null}
           </View>
         </ScrollView>
       </SafeAreaView>
+      <Pressable
+        onPress={resetAnim}
+        className="absolute right-5 top-16 rounded-full border border-white/10 bg-white/6 px-3 py-1.5">
+        <Text className="text-[11px] font-semibold text-white/44">Reset</Text>
+      </Pressable>
     </View>
   );
 }
