@@ -2,12 +2,22 @@
   "name": "rzr-monorepo",
   "private": true,
   "workspaces": [
+    "apps/*",
     "packages/*"
   ],
   "scripts": {
     "start": "npm run start --workspace @sethwebster/rzr",
     "test": "npm run test --workspace @sethwebster/rzr",
     "readme:sync": "node ./scripts/sync-package-readme.mjs",
-    "version:patch": "npm version patch --workspace @sethwebster/rzr"
+    "version:patch": "npm version patch --workspace @sethwebster/rzr",
+    "mobile:start": "npm run start --workspace @sethwebster/rzr-mobile",
+    "mobile:ios": "npm run ios --workspace @sethwebster/rzr-mobile",
+    "mobile:android": "npm run android --workspace @sethwebster/rzr-mobile",
+    "mobile:web": "npm run web --workspace @sethwebster/rzr-mobile",
+    "mobile:lint": "npm run lint --workspace @sethwebster/rzr-mobile",
+    "mobile:typecheck": "npm run typecheck --workspace @sethwebster/rzr-mobile"
+  },
+  "overrides": {
+    "lightningcss": "1.30.1"
   }
 }

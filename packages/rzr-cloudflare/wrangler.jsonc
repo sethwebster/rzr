@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rzr-live-gateway",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-04-03",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SESSIONS",
+        "class_name": "SessionRegistry"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "SessionRegistry"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "free.rzr.live/*",
+      "zone_name": "rzr.live"
+    },
+    {
+      "pattern": "*.free.rzr.live/*",
+      "zone_name": "rzr.live"
+    }
+  ],
+  "vars": {
+    "PUBLIC_BASE_URL": "https://free.rzr.live",
+    "IDLE_TIMEOUT_MS": "86400000"
+  }
+}

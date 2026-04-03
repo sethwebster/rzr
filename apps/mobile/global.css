@@ -1,0 +1,21 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+@import "nativewind/theme";
+
+@theme {
+  --color-rzr-ink: #050816;
+  --color-rzr-ink-soft: #0b1123;
+  --color-rzr-panel: #10172a;
+  --color-rzr-panel-2: #121d34;
+  --color-rzr-cyan: #7cf6ff;
+  --color-rzr-cyan-2: #66d9ff;
+  --color-rzr-violet: #8b7cff;
+  --color-rzr-pink: #ff77d9;
+  --color-rzr-green: #69f0b7;
+  --color-rzr-muted: #9cb0d2;
+  --color-rzr-muted-2: #6f82a8;
+  --radius-4xl: 2rem;
+  --radius-5xl: 2.5rem;
+  --tracking-display: -0.06em;
+}

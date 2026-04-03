@@ -28,6 +28,10 @@ function text(response, status, value) {
   response.end(value);
 }
 
+async function readJsonBody(request) {
+  return JSON.parse(await readBody(request) || "{}");
+}
+
 function readBody(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -137,7 +141,7 @@ function broadcastSnapshot(clients, snapshot) {
 
 function broadcastHeartbeat(clients) {
   for (const client of clients) {
-    client.write(`: keepalive ${Date.now()}\n\n`);
+    client.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
   }
 }
 
@@ -164,6 +168,9 @@ export async function createRemoteServer({
   sendKey = defaultSendKey,
   sendText = defaultSendText,
   refreshIntervalMs = 180,
+  idleTimeoutMs = 0,
+  onIdle = null,
+  onRequestLog = null,
 }) {
   let snapshot = {
     revision: 0,
@@ -181,6 +188,9 @@ export async function createRemoteServer({
   let polling = false;
   let timer = null;
   let heartbeatTimer = null;
+  let idleTimer = null;
+  let idling = false;
+  let lastActivityAt = Date.now();
   const clients = new Set();
   const passwordRequired = password.length > 0;
   const authCookieValue = passwordRequired ? makeToken() : "";
@@ -202,6 +212,25 @@ export async function createRemoteServer({
 
   function writeAuthCookie(response) {
     response.setHeader("Set-Cookie", `rzr_auth=${encodeURIComponent(authCookieValue)}; HttpOnly; SameSite=Lax; Path=/`);
+  }
+
+  function emitRequestLog(event) {
+    if (typeof onRequestLog !== "function") {
+      return;
+    }
+
+    try {
+      onRequestLog({
+        connectedClients: clients.size,
+        ...event,
+      });
+    } catch {
+      // ignore logging failures
+    }
+  }
+
+  function markActivity() {
+    lastActivityAt = Date.now();
   }
 
   async function refreshSnapshot() {
@@ -240,8 +269,21 @@ export async function createRemoteServer({
   }
 
   const server = createHttpServer(async (request, response) => {
+    const startedAt = Date.now();
     const url = new URL(request.url, "http://localhost");
     const isApiRequest = url.pathname.startsWith("/api/");
+    const remoteAddress = request.socket.remoteAddress || "";
+
+    response.once("finish", () => {
+      emitRequestLog({
+        kind: "request",
+        method: request.method,
+        path: url.pathname,
+        status: response.statusCode,
+        durationMs: Date.now() - startedAt,
+        remoteAddress,
+      });
+    });
 
     if (isApiRequest) {
       if (getTokenFromRequest(request) !== token) {
@@ -256,6 +298,7 @@ export async function createRemoteServer({
     }
 
     if (request.method === "GET" && url.pathname === "/") {
+      markActivity();
       response.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
@@ -267,6 +310,7 @@ export async function createRemoteServer({
     if (request.method === "POST" && url.pathname === "/api/login") {
       try {
         if (!passwordRequired) {
+          markActivity();
           json(response, 200, { ok: true, passwordRequired: false });
           return;
         }
@@ -277,6 +321,7 @@ export async function createRemoteServer({
           return;
         }
 
+        markActivity();
         writeAuthCookie(response);
         json(response, 200, { ok: true, passwordRequired: true, authToken: authTokenValue });
       } catch (error) {
@@ -286,6 +331,7 @@ export async function createRemoteServer({
     }
 
     if (request.method === "GET" && url.pathname === "/api/session") {
+      markActivity();
       json(response, 200, {
         target,
         readonly,
@@ -296,6 +342,7 @@ export async function createRemoteServer({
     }
 
     if (request.method === "GET" && url.pathname === "/api/stream") {
+      markActivity();
       response.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-store",
@@ -306,9 +353,23 @@ export async function createRemoteServer({
       response.write("retry: 1000\n\n");
       response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
       clients.add(response);
+      emitRequestLog({
+        kind: "stream-open",
+        method: request.method,
+        path: url.pathname,
+        status: 200,
+        remoteAddress,
+      });
 
       request.on("close", () => {
         clients.delete(response);
+        emitRequestLog({
+          kind: "stream-close",
+          method: request.method,
+          path: url.pathname,
+          status: 200,
+          remoteAddress,
+        });
       });
       return;
     }
@@ -320,7 +381,8 @@ export async function createRemoteServer({
       }
 
       try {
-        const { text: value } = JSON.parse(await readBody(request) || "{}");
+        const { text: value } = await readJsonBody(request);
+        markActivity();
         await sendText(target, typeof value === "string" ? value : "");
         await refreshSnapshot();
         json(response, 200, { ok: true, snapshot });
@@ -337,13 +399,61 @@ export async function createRemoteServer({
       }
 
       try {
-        const { key } = JSON.parse(await readBody(request) || "{}");
+        const { key } = await readJsonBody(request);
         if (!key || typeof key !== "string") {
           throw new Error("key is required");
         }
+        markActivity();
         await sendKey(target, key);
         await refreshSnapshot();
         json(response, 200, { ok: true, snapshot });
+      } catch (error) {
+        json(response, 400, { error: error.message });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/session/input") {
+      if (readonly) {
+        json(response, 403, { error: "session is read-only" });
+        return;
+      }
+
+      try {
+        const { text: value = "", key = "" } = await readJsonBody(request);
+
+        if (typeof value !== "string") {
+          throw new Error("text must be a string");
+        }
+
+        if (key != null && typeof key !== "string") {
+          throw new Error("key must be a string");
+        }
+
+        if (!value && !key) {
+          throw new Error("text or key is required");
+        }
+
+        markActivity();
+
+        if (value) {
+          await sendText(target, value);
+        }
+
+        if (key) {
+          await sendKey(target, key);
+        }
+
+        await refreshSnapshot();
+        json(response, 200, {
+          ok: true,
+          target,
+          applied: {
+            text: value || "",
+            key: key || "",
+          },
+          snapshot,
+        });
       } catch (error) {
         json(response, 400, { error: error.message });
       }
@@ -357,7 +467,8 @@ export async function createRemoteServer({
       }
 
       try {
-        const { cols, rows } = JSON.parse(await readBody(request) || "{}");
+        const { cols, rows } = await readJsonBody(request);
+        markActivity();
         await resizeSession(target, Number(cols), Number(rows));
         await refreshSnapshot();
         json(response, 200, { ok: true, snapshot });
@@ -416,6 +527,28 @@ export async function createRemoteServer({
   }, 15000);
   heartbeatTimer.unref();
 
+  if (idleTimeoutMs > 0 && typeof onIdle === "function") {
+    const checkIntervalMs = Math.max(1000, Math.min(60000, Math.floor(idleTimeoutMs / 120) || 1000));
+    idleTimer = setInterval(() => {
+      if (idling) {
+        return;
+      }
+
+      const idleForMs = Date.now() - lastActivityAt;
+      if (idleForMs < idleTimeoutMs) {
+        return;
+      }
+
+      idling = true;
+      Promise.resolve(onIdle({
+        target,
+        lastActivityAt,
+        idleForMs,
+      })).catch(() => {});
+    }, checkIntervalMs);
+    idleTimer.unref();
+  }
+
   const address = server.address();
   const effectivePort = typeof address === "object" && address ? address.port : port;
 
@@ -432,6 +565,10 @@ export async function createRemoteServer({
 
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
+      }
+
+      if (idleTimer) {
+        clearInterval(idleTimer);
       }
 
       for (const client of clients) {

@@ -31,6 +31,10 @@ function makeTunnelProcess({ provider, command, args, parsePublicUrl, startupTim
   let startupError = null;
   let startupSettled = false;
   let combinedLogs = "";
+  let resolveClosed = null;
+  const closedPromise = new Promise((resolve) => {
+    resolveClosed = resolve;
+  });
 
   const ready = new Promise((resolve, reject) => {
     const startupTimer = setTimeout(() => {
@@ -84,6 +88,7 @@ function makeTunnelProcess({ provider, command, args, parsePublicUrl, startupTim
 
     child.on("close", (code, signal) => {
       closed = true;
+      resolveClosed?.({ code, signal });
 
       if (startupSettled) {
         return;
@@ -119,6 +124,7 @@ function makeTunnelProcess({ provider, command, args, parsePublicUrl, startupTim
   return {
     provider,
     ready,
+    closed: closedPromise,
     get publicUrl() {
       return publicUrl;
     },

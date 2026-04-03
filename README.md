@@ -257,10 +257,28 @@ If you need “observe an arbitrary existing process that was **not** launched i
 
 This repo is organized as a small npm workspace monorepo. The published package lives in `packages/rzr`.
 
+The Expo mobile companion lives in `apps/mobile`.
+
 Run the test suite:
 
 ```bash
 npm test
+```
+
+Start the mobile app:
+
+```bash
+npm run mobile:start
+```
+
+Useful mobile workspace commands:
+
+```bash
+npm run mobile:ios
+npm run mobile:android
+npm run mobile:web
+npm run mobile:typecheck
+npm run mobile:lint
 ```
 
 Regenerate the README demo asset:

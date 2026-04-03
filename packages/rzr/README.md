@@ -49,6 +49,12 @@ Optional for public internet access:
 - `ngrok`
 - or `npx localtunnel` as fallback
 
+Optional for stable public URLs on your own Cloudflare zone:
+
+- a deployed `packages/rzr-cloudflare` Worker
+- optionally `RZR_REMOTE_REGISTER_SECRET`
+- optionally `RZR_REMOTE_BASE_URL` if you are not using `https://free.rzr.live`
+
 ### Run from npm
 
 ```bash
@@ -143,7 +149,14 @@ rzr run --readonly -- codex
 rzr run --tunnel -- codex
 ```
 
-### Request a named tunnel
+### Use `free.rzr.live` as the default public entrypoint
+
+```bash
+export RZR_REMOTE_BASE_URL=https://free.rzr.live
+rzr run -- codex
+```
+
+### Request a named provider tunnel
 
 ```bash
 rzr run --tunnel --tunnel-name my-remote -- codex
@@ -171,7 +184,7 @@ rzr list
 Launch a new command inside `tmux` and expose it through the web UI.
 
 ```bash
-rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE] -- <command...>
+rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--no-tunnel] [--tunnel-name VALUE] [--password VALUE] [--remote-base-url URL] [--remote-register-secret VALUE] [--non-interactive] -- <command...>
 ```
 
 Options:
@@ -182,8 +195,12 @@ Options:
 - `--cwd PATH` — working directory for the launched command
 - `--readonly` — disable remote input
 - `--tunnel` — create a public tunnel
+- `--no-tunnel` — keep the session local-only
 - `--tunnel-name VALUE` — request a provider-specific tunnel name
 - `--password VALUE` — require a password before exposing the live session
+- `--remote-base-url URL` — override the stable public Worker base URL, default `https://free.rzr.live`
+- `--remote-register-secret VALUE` — optional Worker registration secret
+- `--non-interactive` — fail instead of prompting if an explicitly chosen port is busy
 - `-- <command...>` — the command to run inside `tmux`
 
 ### `rzr attach`
@@ -191,7 +208,7 @@ Options:
 Expose an existing `tmux` session.
 
 ```bash
-rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE]
+rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--no-tunnel] [--tunnel-name VALUE] [--password VALUE] [--remote-base-url URL] [--remote-register-secret VALUE] [--non-interactive]
 ```
 
 ### `rzr list`
@@ -206,11 +223,19 @@ rzr list
 
 ## Tunnel behavior
 
-When you use `--tunnel`, provider order is:
+When a public tunnel is enabled, provider order is:
 
 1. installed `cloudflared`
 2. installed `ngrok`
 3. `npx localtunnel`
+
+By default, `rzr` enables tunneling and registers the session with your Cloudflare Worker. That gives you a stable URL like:
+
+```text
+https://<slug>.free.rzr.live/?token=...
+```
+
+Use `--no-tunnel` to opt out for a local-only run.
 
 `--tunnel-name` behavior depends on provider:
 
@@ -218,7 +243,11 @@ When you use `--tunnel`, provider order is:
 - **ngrok**: passes the value as the tunnel name
 - **localtunnel**: requests the value as the public subdomain
 
-The selected tunnel is torn down when `rzr` exits.
+Public tunnel policy:
+
+- the selected tunnel is torn down when `rzr` exits
+- when a public tunnel is enabled, `rzr` also tears it down after 24 hours of inactivity
+- inactivity expiry leaves the backing `tmux` session running so you can re-expose it later with `rzr attach`
 
 ---
 
@@ -256,6 +285,8 @@ If you need “observe an arbitrary existing process that was **not** launched i
 ## Development
 
 This repo is organized as a small npm workspace monorepo. The published package lives in `packages/rzr`.
+
+The Cloudflare Worker gateway lives in `packages/rzr-cloudflare`.
 
 Run the test suite:
 

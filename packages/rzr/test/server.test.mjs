@@ -35,6 +35,23 @@ function readJson(url, token) {
   });
 }
 
+function postJson(url, token, body) {
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-rzr-token": token,
+    },
+    body: JSON.stringify(body),
+  }).then(async (response) => {
+    const payload = await response.json();
+    if (!response.ok) {
+      assert.fail(payload.error || JSON.stringify(payload));
+    }
+    return payload;
+  });
+}
+
 async function waitFor(assertion, { timeout = 1000, interval = 20 } = {}) {
   const deadline = Date.now() + timeout;
   let lastError = null;
@@ -127,6 +144,131 @@ test("createRemoteServer marks snapshots missing after tmux target disappears", 
       assert.equal(after.snapshot.info.currentCommand, "session not found");
       assert.match(after.snapshot.screen, /\[rzr\] tmux session not found/);
     });
+  } finally {
+    await server.close();
+  }
+});
+
+test("createRemoteServer triggers onIdle after the configured inactivity window", async () => {
+  const port = await getFreePort();
+  let idleEvent = null;
+  let resolveIdle = null;
+  const idlePromise = new Promise((resolve) => {
+    resolveIdle = resolve;
+  });
+
+  const server = await createRemoteServer({
+    target: "idle-test",
+    host: "127.0.0.1",
+    port,
+    token: "idle-token",
+    refreshIntervalMs: 20,
+    idleTimeoutMs: 80,
+    onIdle(event) {
+      idleEvent = event;
+      resolveIdle(event);
+    },
+    capturePane: async () => "hello\n",
+    getSessionInfo: async () => ({
+      name: "idle-test",
+      dead: false,
+      currentCommand: "sleep",
+      exitStatus: null,
+      width: 80,
+      height: 24,
+      title: "demo",
+    }),
+  });
+
+  try {
+    await idlePromise;
+    assert.equal(idleEvent?.target, "idle-test");
+    assert.ok(idleEvent?.idleForMs >= 80);
+  } finally {
+    await server.close();
+  }
+});
+
+test("createRemoteServer reports request and stream lifecycle logs", async () => {
+  const port = await getFreePort();
+  const events = [];
+  const server = await createRemoteServer({
+    target: "log-test",
+    host: "127.0.0.1",
+    port,
+    token: "log-token",
+    refreshIntervalMs: 20,
+    onRequestLog(event) {
+      events.push(event);
+    },
+    capturePane: async () => "hello\n",
+    getSessionInfo: async () => ({
+      name: "log-test",
+      dead: false,
+      currentCommand: "sleep",
+      exitStatus: null,
+      width: 80,
+      height: 24,
+      title: "demo",
+    }),
+  });
+
+  try {
+    const stream = await fetch(`http://127.0.0.1:${server.port}/api/stream?token=log-token`);
+    assert.equal(stream.status, 200);
+    await readJson(`http://127.0.0.1:${server.port}/api/session`, "log-token");
+    await stream.body.cancel();
+
+    await waitFor(() => {
+      assert.ok(events.some((event) => event.kind === "stream-open" && event.path === "/api/stream"));
+      assert.ok(events.some((event) => event.kind === "stream-close" && event.path === "/api/stream"));
+      assert.ok(events.some((event) => event.kind === "request" && event.path === "/api/session" && event.status === 200));
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("createRemoteServer exposes a session-scoped authenticated input endpoint", async () => {
+  const port = await getFreePort();
+  const writes = [];
+  const keys = [];
+  const server = await createRemoteServer({
+    target: "input-test",
+    host: "127.0.0.1",
+    port,
+    token: "input-token",
+    refreshIntervalMs: 20,
+    sendText: async (_target, value) => {
+      writes.push(value);
+    },
+    sendKey: async (_target, value) => {
+      keys.push(value);
+    },
+    capturePane: async () => writes.join(""),
+    getSessionInfo: async () => ({
+      name: "input-test",
+      dead: false,
+      currentCommand: "cat",
+      exitStatus: null,
+      width: 80,
+      height: 24,
+      title: "",
+    }),
+  });
+
+  try {
+    const payload = await postJson(`http://127.0.0.1:${server.port}/api/session/input`, "input-token", {
+      text: "hello",
+      key: "Enter",
+    });
+
+    assert.deepEqual(writes, ["hello"]);
+    assert.deepEqual(keys, ["Enter"]);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.target, "input-test");
+    assert.equal(payload.applied.text, "hello");
+    assert.equal(payload.applied.key, "Enter");
   } finally {
     await server.close();
   }
