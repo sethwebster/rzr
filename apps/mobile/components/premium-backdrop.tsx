@@ -1,29 +1,15 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
-  Easing,
   interpolate,
   useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
 } from 'react-native-reanimated';
 
-export function PremiumBackdrop() {
-  const drift = useSharedValue(0);
+import { useDriftAnimation } from '@/hooks/use-drift-animation';
 
-  useEffect(() => {
-    drift.value = withRepeat(
-      withTiming(1, {
-        duration: 6400,
-        easing: Easing.inOut(Easing.quad),
-      }),
-      -1,
-      true,
-    );
-  }, [drift]);
+export function PremiumBackdrop() {
+  const drift = useDriftAnimation();
 
   const orbA = useAnimatedStyle(() => ({
     transform: [

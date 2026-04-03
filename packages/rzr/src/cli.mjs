@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
+import { createRequire } from "node:module";
 import { createRemoteServer, makeToken } from "./server.mjs";
 import {
   buildPublicSlug,
@@ -26,6 +27,8 @@ import {
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_JSON = JSON.parse(readFileSync(join(CLI_DIR, "..", "package.json"), "utf8"));
 const VERSION = PACKAGE_JSON.version;
+const require = createRequire(import.meta.url);
+const qrcodeTerminal = require("qrcode-terminal");
 
 function printUsage() {
   console.log(`rzr
@@ -337,7 +340,7 @@ async function promptForSigint(target) {
     function onData(chunk) {
       const key = chunk.toString("utf8");
 
-      if (key === "\r" || key === "\n") {
+      if (key === "\u0003" || key === "\r" || key === "\n") {
         cleanup();
         resolve("keep");
         return;
@@ -463,6 +466,37 @@ function padAnsiRight(value, width) {
   return value + " ".repeat(width - visible);
 }
 
+function centerAnsi(value, width) {
+  const visible = visibleLength(value);
+  if (visible >= width) {
+    return truncateAnsi(value, width);
+  }
+
+  const leftPad = Math.floor((width - visible) / 2);
+  const rightPad = Math.max(0, width - visible - leftPad);
+  return `${" ".repeat(leftPad)}${value}${" ".repeat(rightPad)}`;
+}
+
+function renderTerminalQr(value) {
+  let output = "";
+  qrcodeTerminal.generate(value, { small: true }, (qr) => {
+    output = qr;
+  });
+  return output.trimEnd();
+}
+
+function buildHealthcheckUrl(entry) {
+  try {
+    const url = new URL(entry);
+    url.pathname = "/health";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 function formatRequestLog(event, { color = true } = {}) {
   const reset = color ? "\x1b[0m" : "";
   const gray = color ? "\x1b[90m" : "";
@@ -549,7 +583,135 @@ function createDashboardPrinter({
     tunnelNote: tunnelEnabled ? "starting public tunnel" : "local-only",
     logLines: [],
     suspended: false,
+    screenMode: "status",
+    entryHealth: Object.create(null),
   };
+  const stdin = process.stdin;
+  const restoreRawMode = process.stdin.isTTY && typeof stdin.setRawMode === "function";
+  const wasRaw = Boolean(stdin.isRaw);
+  let listening = false;
+  let healthcheckTimer = null;
+
+  function healthDot(entry) {
+    return state.entryHealth[entry] ? `${green}●${reset}` : `${gray}·${reset}`;
+  }
+
+  function advertisedEntries() {
+    const publicEntry = state.tunnelUrl ? `${state.tunnelUrl}?token=${token}` : "";
+    const localEntries = [
+      `http://localhost:${port}/?token=${token}`,
+      ...urls,
+    ];
+
+    return {
+      publicEntry,
+      localEntries,
+      connectEntries: [
+        ...(publicEntry ? [publicEntry] : []),
+        ...localEntries,
+      ],
+    };
+  }
+
+  async function runHealthchecks() {
+    const { connectEntries } = advertisedEntries();
+
+    for (const entry of connectEntries) {
+      if (state.entryHealth[entry]) {
+        continue;
+      }
+
+      const healthUrl = buildHealthcheckUrl(entry);
+      if (!healthUrl) {
+        continue;
+      }
+
+      try {
+        const response = await fetch(healthUrl, {
+          method: "GET",
+          signal: AbortSignal.timeout(1500),
+        });
+        if (response.ok) {
+          state.entryHealth[entry] = true;
+          render();
+        }
+      } catch {
+        // keep the dot dim until a later probe succeeds
+      }
+    }
+  }
+
+  function syncHealthchecks() {
+    const { connectEntries } = advertisedEntries();
+    const nextHealth = Object.create(null);
+
+    for (const entry of connectEntries) {
+      nextHealth[entry] = state.entryHealth[entry] === true;
+    }
+
+    state.entryHealth = nextHealth;
+
+    if (healthcheckTimer) {
+      clearInterval(healthcheckTimer);
+      healthcheckTimer = null;
+    }
+
+    void runHealthchecks();
+    healthcheckTimer = setInterval(() => {
+      void runHealthchecks();
+    }, 2500);
+    healthcheckTimer.unref?.();
+  }
+
+  function attachInput() {
+    if (!process.stdin.isTTY || state.suspended || listening) {
+      return;
+    }
+
+    if (restoreRawMode) {
+      stdin.setRawMode(true);
+    }
+
+    stdin.resume();
+    stdin.on("data", onData);
+    listening = true;
+  }
+
+  function detachInput() {
+    if (!listening) {
+      return;
+    }
+
+    stdin.off("data", onData);
+    if (restoreRawMode) {
+      stdin.setRawMode(wasRaw);
+    }
+    listening = false;
+  }
+
+  function toggleQrScreen() {
+    state.screenMode = state.screenMode === "qr" ? "status" : "qr";
+    render();
+  }
+
+  function onData(chunk) {
+    const key = chunk.toString("utf8");
+
+    if (key === "\u0003") {
+      process.kill(process.pid, "SIGINT");
+      return;
+    }
+
+    if (key === "q" || key === "Q") {
+      toggleQrScreen();
+      return;
+    }
+
+    if (state.screenMode === "qr" && (key === "\u001b" || key === "\r" || key === "\n")) {
+      state.screenMode = "status";
+      render();
+    }
+  }
 
   function tunnelDot(status) {
     if (status === "connected") {
@@ -586,10 +748,7 @@ function createDashboardPrinter({
     }
 
     const publicEntry = state.tunnelUrl ? `${state.tunnelUrl}?token=${token}` : "";
-    const localEntries = [
-      `http://localhost:${port}/?token=${token}`,
-      ...urls,
-    ];
+    const { localEntries } = advertisedEntries();
     const exposure = tunnelEnabled ? "public" : "local-only";
     const mode = `${passwordEnabled ? "password-gated" : "token-only"} · ${exposure}`;
     const tunnelLine = state.tunnelProvider
@@ -598,50 +757,93 @@ function createDashboardPrinter({
         ? state.tunnelNote
         : "disabled";
 
-    const headerLines = [
-      `${bold}${cyan}rzr remote${reset}  ${dim}live bridge status${reset}`,
-      "",
-      `${bold}Session${reset}   ${target}`,
-      `${bold}Port${reset}      ${port}`,
-      `${bold}Token${reset}     ${token}`,
-      `${bold}Mode${reset}      ${mode}`,
-      `${bold}Tunnel${reset}    ${tunnelLine}`,
-      "",
-      `${bold}${tunnelDot(state.tunnelStatus)} Connect${reset} ${dim}(${tunnelStatusLabel(state.tunnelStatus)})${reset}`,
-      ...(publicEntry ? [`  ${green}→${reset} ${publicEntry}`] : []),
-      ...localEntries.map((entry) => `  ${gray}·${reset} ${entry}`),
-      "",
-      `${bold}${magenta}Status${reset}`,
-      `  ${gray}·${reset} Ctrl+C warns before leaving tmux running`,
-      `  ${gray}·${reset} Public tunnels expire after 24h of inactivity`,
-      `  ${gray}·${reset} ${tunnelEnabled ? "Requests below include live stream opens/closes and API traffic" : "Watching local traffic only"}`,
-      "",
-      `${bold}${yellow}Request log${reset}`,
-    ];
-
     const width = Math.max(40, process.stdout.columns || 100);
     const innerWidth = Math.max(12, width - 4);
     const topBorder = `┌${"─".repeat(width - 2)}┐`;
     const bottomBorder = `└${"─".repeat(width - 2)}┘`;
     const rows = Math.max(24, process.stdout.rows || 32);
-    const logHeight = Math.max(6, rows - headerLines.length - 3);
-    const plainWaiting = `${dim}waiting for traffic…${reset}`;
-    const lines = state.logLines.length > 0 ? state.logLines.slice(-logHeight) : [plainWaiting];
-    const fillerCount = Math.max(0, logHeight - lines.length);
-    const contentRows = [
-      ...Array.from({ length: fillerCount }, () => ""),
-      ...lines,
-    ].slice(-logHeight);
+    let headerLines = [];
+    let contentRows = [];
 
-    const boxedRows = contentRows.map((line) => {
-      const content = padAnsiRight(line, innerWidth);
-      return `│ ${content} │`;
-    });
+    if (state.screenMode === "qr") {
+      headerLines = [
+        `${bold}${cyan}rzr remote${reset}  ${dim}tunnel QR${reset}`,
+        "",
+        `${bold}Session${reset}   ${target}`,
+        `${bold}Tunnel${reset}    ${tunnelLine}`,
+        `${bold}Keys${reset}      ${dim}q toggles · esc/enter returns${reset}`,
+        "",
+      ];
+
+      if (publicEntry) {
+        const qrLines = renderTerminalQr(publicEntry)
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => centerAnsi(line, innerWidth));
+        contentRows = [
+          `${dim}Scan this from the mobile connect screen · press q to return${reset}`,
+          "",
+          ...qrLines,
+          "",
+          centerAnsi(`${green}${publicEntry}${reset}`, innerWidth),
+        ];
+      } else {
+        contentRows = [
+          "",
+          centerAnsi(`${yellow}No public tunnel is connected yet.${reset}`, innerWidth),
+          "",
+          centerAnsi(`${dim}Press q, Esc, or Enter to return.${reset}`, innerWidth),
+        ];
+      }
+    } else {
+      headerLines = [
+        `${bold}${cyan}rzr remote${reset}  ${dim}live bridge status${reset}`,
+        "",
+        `${bold}Session${reset}   ${target}`,
+        `${bold}Port${reset}      ${port}`,
+        `${bold}Token${reset}     ${token}`,
+        `${bold}Mode${reset}      ${mode}`,
+        `${bold}Tunnel${reset}    ${tunnelLine}`,
+        "",
+        `${bold}${tunnelDot(state.tunnelStatus)} Connect${reset} ${dim}(${tunnelStatusLabel(state.tunnelStatus)})${reset}`,
+        ...(publicEntry ? [`  ${healthDot(publicEntry)} ${publicEntry}`] : []),
+        ...localEntries.map((entry) => `  ${healthDot(entry)} ${entry}`),
+        "",
+        `${bold}${magenta}Status${reset}`,
+        `  ${gray}·${reset} Press q to reveal the tunnel QR code`,
+        `  ${gray}·${reset} Ctrl+C warns before leaving tmux running`,
+        `  ${gray}·${reset} Public tunnels expire after 24h of inactivity`,
+        `  ${gray}·${reset} ${tunnelEnabled ? "Requests below include live stream opens/closes and API traffic" : "Watching local traffic only"}`,
+        "",
+        `${bold}${yellow}Request log${reset}`,
+      ];
+
+      const logHeight = Math.max(6, rows - headerLines.length - 3);
+      const plainWaiting = `${dim}waiting for traffic…${reset}`;
+      const lines = state.logLines.length > 0 ? state.logLines.slice(-logHeight) : [plainWaiting];
+      const fillerCount = Math.max(0, logHeight - lines.length);
+      contentRows = [
+        ...Array.from({ length: fillerCount }, () => ""),
+        ...lines,
+      ].slice(-logHeight);
+    }
+
+    const availableContentRows = Math.max(6, rows - headerLines.length - 3);
+    if (contentRows.length > availableContentRows) {
+      contentRows = contentRows.slice(-availableContentRows);
+    }
+    const fillerCount = Math.max(0, availableContentRows - contentRows.length);
+    contentRows = [...contentRows, ...Array.from({ length: fillerCount }, () => "")];
+
+    const boxedRows = contentRows.map((line) => `│ ${padAnsiRight(line, innerWidth)} │`);
 
     process.stdout.write("\x1b[?25l");
     process.stdout.write("\x1b[H\x1b[2J");
     process.stdout.write(`${headerLines.join("\n")}\n${topBorder}\n${boxedRows.join("\n")}\n${bottomBorder}`);
   }
+
+  attachInput();
+  syncHealthchecks();
 
   return {
     setTunnel({ status, provider = "", url = "", note = "" }) {
@@ -657,6 +859,7 @@ function createDashboardPrinter({
       if (note) {
         state.tunnelNote = note;
       }
+      syncHealthchecks();
       render();
     },
     addLog(event) {
@@ -675,14 +878,20 @@ function createDashboardPrinter({
     },
     suspend() {
       state.suspended = true;
+      detachInput();
       process.stdout.write("\x1b[?25h");
       process.stdout.write("\x1b[H\x1b[2J");
     },
     resume() {
       state.suspended = false;
+      attachInput();
       render();
     },
     stop() {
+      if (healthcheckTimer) {
+        clearInterval(healthcheckTimer);
+      }
+      detachInput();
       process.stdout.write("\x1b[?25h");
       process.stdout.write("\n");
     },

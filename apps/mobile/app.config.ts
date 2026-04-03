@@ -25,6 +25,8 @@ const config: ExpoConfig = {
     supportsTablet: false,
     bundleIdentifier: 'com.sethwebster.rzrmobile',
     infoPlist: {
+      NSCameraUsageDescription:
+        'rzr mobile uses the camera to scan QR codes that connect you to terminal sessions.',
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoadsInWebContent: true,
         NSAllowsLocalNetworking: true,
@@ -40,7 +42,7 @@ const config: ExpoConfig = {
       backgroundImage: './assets/images/android-icon-background.png',
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
-    permissions: ['POST_NOTIFICATIONS'],
+    permissions: ['POST_NOTIFICATIONS', 'CAMERA'],
   },
   web: {
     bundler: 'metro',
@@ -49,6 +51,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    [
+      'expo-camera',
+      {
+        cameraPermission:
+          'rzr mobile uses the camera to scan QR codes that connect you to terminal sessions.',
+      },
+    ],
     [
       'expo-notifications',
       {

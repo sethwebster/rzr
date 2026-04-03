@@ -7,5 +7,5 @@ export type TerminalSession = {
   accent: SessionAccent;
   passwordHint?: string;
   lastConnectedAt: string;
-  source: 'manual' | 'deep-link' | 'notification';
+  source: 'manual' | 'qr' | 'deep-link' | 'notification';
 };

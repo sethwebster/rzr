@@ -1,15 +1,13 @@
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack, router } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
-import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
-import { getParamValue } from '@/lib/utils';
+import { useNotificationBridge } from '@/hooks/use-notification-bridge';
 import { SessionProvider } from '@/providers/session-provider';
 import '../global.css';
 
@@ -29,32 +27,7 @@ const NAV_THEME = {
 };
 
 function NotificationBridge() {
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => null);
-
-    const handleResponse = (response: Notifications.NotificationResponse) => {
-      const href = getParamValue(
-        response.notification.request.content.data?.href as
-          | string
-          | string[]
-          | undefined,
-      );
-      if (href) {
-        router.push(href as never);
-      }
-    };
-
-    const subscription =
-      Notifications.addNotificationResponseReceivedListener(handleResponse);
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) {
-        handleResponse(response);
-      }
-    });
-
-    return () => subscription.remove();
-  }, []);
-
+  useNotificationBridge();
   return null;
 }
 

@@ -37,5 +37,8 @@
   "scripts": {
     "start": "node ./src/cli.mjs",
     "test": "node --test"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
   }
 }
