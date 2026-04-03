@@ -145,10 +145,15 @@ export function makeToken() {
   return randomBytes(18).toString("base64url");
 }
 
+function isPortInUse(error) {
+  return error && typeof error === "object" && error.code === "EADDRINUSE";
+}
+
 export async function createRemoteServer({
   target,
   host = "0.0.0.0",
   port = 4317,
+  incrementPortOnConflict = false,
   token = makeToken(),
   password = "",
   readonly = false,
@@ -372,20 +377,33 @@ export async function createRemoteServer({
 
   await refreshSnapshot();
 
+  let listenPort = port;
+
   await new Promise((resolve, reject) => {
-    function onError(error) {
-      server.off("listening", onListening);
-      reject(error);
+    function tryListen() {
+      function onError(error) {
+        server.off("listening", onListening);
+
+        if (isPortInUse(error) && incrementPortOnConflict) {
+          listenPort += 1;
+          queueMicrotask(tryListen);
+          return;
+        }
+
+        reject(error);
+      }
+
+      function onListening() {
+        server.off("error", onError);
+        resolve();
+      }
+
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(listenPort, host);
     }
 
-    function onListening() {
-      server.off("error", onError);
-      resolve();
-    }
-
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(port, host);
+    tryListen();
   });
 
   timer = setInterval(() => {

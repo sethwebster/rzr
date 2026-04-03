@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { createRemoteServer, makeToken } from "./server.mjs";
 import { startBestTunnel } from "./tunnel.mjs";
@@ -23,8 +24,8 @@ function printUsage() {
   console.log(`rzr
 
 Usage:
-  rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE] -- <command...>
-  rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE]
+  rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE] [--non-interactive] -- <command...>
+  rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE] [--non-interactive]
   rzr list
 
 Examples:
@@ -44,6 +45,7 @@ function parseFlags(argv) {
     port: 4317,
     readonly: false,
     tunnel: false,
+    nonInteractive: false,
     cwd: process.cwd(),
   };
   const positionals = [];
@@ -81,6 +83,7 @@ function parseFlags(argv) {
         break;
       case "port":
         flags.port = Number(next);
+        flags.explicitPort = true;
         if (inline == null) {
           index += 1;
         }
@@ -109,6 +112,9 @@ function parseFlags(argv) {
           index += 1;
         }
         break;
+      case "non-interactive":
+        flags.nonInteractive = true;
+        break;
       default:
         throw new Error(`unknown flag --${key}`);
     }
@@ -122,8 +128,166 @@ function defaultSessionName(command) {
   return `${stem || "session"}-${Date.now().toString(36)}`;
 }
 
+function commandExists(command) {
+  const whichCommand = process.platform === "win32" ? "where" : "which";
+  const result = spawnSync(whichCommand, [command], { stdio: "ignore" });
+  return result.status === 0;
+}
+
+function isTmuxMissingError(error) {
+  const message = error?.message || "";
+  return error?.code === "ENOENT" || /spawn tmux ENOENT|tmux.*not found/i.test(message);
+}
+
+function getTmuxInstallCommands() {
+  if (process.platform === "darwin") {
+    return [
+      "brew install tmux",
+      ...(commandExists("port") ? ["sudo port install tmux"] : []),
+    ];
+  }
+
+  if (process.platform === "linux") {
+    const commands = [];
+
+    if (commandExists("apt-get")) {
+      commands.push("sudo apt-get install tmux");
+    }
+
+    if (commandExists("dnf")) {
+      commands.push("sudo dnf install tmux");
+    }
+
+    if (commandExists("yum")) {
+      commands.push("sudo yum install tmux");
+    }
+
+    if (commandExists("pacman")) {
+      commands.push("sudo pacman -S tmux");
+    }
+
+    if (commandExists("apk")) {
+      commands.push("sudo apk add tmux");
+    }
+
+    if (commands.length > 0) {
+      return commands;
+    }
+  }
+
+  return [
+    "brew install tmux",
+    "sudo apt-get install tmux",
+    "sudo dnf install tmux",
+    "sudo pacman -S tmux",
+  ];
+}
+
+function printTmuxInstallHelp() {
+  const commands = getTmuxInstallCommands();
+
+  console.error("tmux is required but was not found.");
+  console.error("");
+  console.error("Install it with one of:");
+  for (const command of commands) {
+    console.error(`  ${command}`);
+  }
+  console.error("");
+  console.error("Then rerun `rzr`.");
+}
+
+function getTunnelToolStatus() {
+  return {
+    cloudflared: commandExists("cloudflared"),
+    ngrok: commandExists("ngrok"),
+    npx: commandExists("npx"),
+  };
+}
+
+function getTunnelInstallCommands() {
+  if (process.platform === "darwin") {
+    return [
+      "brew install cloudflared",
+      "brew install ngrok/ngrok/ngrok",
+      "npm install -g localtunnel",
+    ];
+  }
+
+  if (process.platform === "linux") {
+    return [
+      "brew install cloudflared",
+      "brew install ngrok/ngrok/ngrok",
+      "npm install -g localtunnel",
+    ];
+  }
+
+  return [
+    "brew install cloudflared",
+    "brew install ngrok/ngrok/ngrok",
+    "npm install -g localtunnel",
+  ];
+}
+
+function printTunnelInstallHelp() {
+  const commands = getTunnelInstallCommands();
+
+  console.error("Tunneling was requested but no supported tunnel tool was found.");
+  console.error("");
+  console.error("Install one of:");
+  for (const command of commands) {
+    console.error(`  ${command}`);
+  }
+  console.error("");
+  console.error("rzr will prefer cloudflared, then ngrok, then localtunnel via npx.");
+}
+
 async function holdOpen() {
   await new Promise(() => {});
+}
+
+async function promptForPortIncrement(port) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    const restoreRawMode = typeof stdin.setRawMode === "function";
+    const wasRaw = Boolean(stdin.isRaw);
+
+    function cleanup() {
+      stdin.off("data", onData);
+      if (restoreRawMode) {
+        stdin.setRawMode(wasRaw);
+      }
+      stdout.write("\n");
+    }
+
+    function onData(chunk) {
+      const key = chunk.toString("utf8");
+
+      if (key === "y" || key === "Y") {
+        cleanup();
+        resolve(true);
+        return;
+      }
+
+      if (key === "n" || key === "N" || key === "\r" || key === "\n") {
+        cleanup();
+        resolve(false);
+      }
+    }
+
+    stdout.write(`Port ${port} is already in use. Increment until a free port is found? [y/N]: `);
+
+    if (restoreRawMode) {
+      stdin.setRawMode(true);
+    }
+
+    stdin.resume();
+    stdin.on("data", onData);
+  });
 }
 
 async function promptForSigint(target) {
@@ -236,7 +400,16 @@ async function main() {
     return;
   }
 
-  await ensureTmux();
+  try {
+    await ensureTmux();
+  } catch (error) {
+    if (!isTmuxMissingError(error)) {
+      throw error;
+    }
+
+    printTmuxInstallHelp();
+    process.exit(1);
+  }
 
   if (command === "list") {
     const sessions = await listSessions();
@@ -290,29 +463,72 @@ async function main() {
     throw new Error(`unknown command: ${command}`);
   }
 
-  const server = await createRemoteServer({
-    target,
-    host: flags.host,
-    port: flags.port,
-    token,
-    password: flags.password || "",
-    readonly: flags.readonly,
-  });
+  let server;
+
+  try {
+    server = await createRemoteServer({
+      target,
+      host: flags.host,
+      port: flags.port,
+      incrementPortOnConflict: !flags.explicitPort,
+      token,
+      password: flags.password || "",
+      readonly: flags.readonly,
+    });
+  } catch (error) {
+    if (error?.code !== "EADDRINUSE" || !flags.explicitPort) {
+      throw error;
+    }
+
+    if (flags.nonInteractive) {
+      throw new Error(`port ${flags.port} is already in use`);
+    }
+
+    const shouldIncrement = await promptForPortIncrement(flags.port);
+    if (!shouldIncrement) {
+      throw new Error(`port ${flags.port} is already in use`);
+    }
+
+    server = await createRemoteServer({
+      target,
+      host: flags.host,
+      port: flags.port + 1,
+      incrementPortOnConflict: true,
+      token,
+      password: flags.password || "",
+      readonly: flags.readonly,
+    });
+  }
 
   let tunnel = null;
   let tunnelUrl = null;
   let tunnelProvider = null;
 
   if (flags.tunnel) {
+    const tunnelTools = getTunnelToolStatus();
+    if (!tunnelTools.cloudflared && !tunnelTools.ngrok && !tunnelTools.npx) {
+      printTunnelInstallHelp();
+      process.exit(1);
+    }
+
     console.log("");
     console.log("Starting public tunnel...");
-    tunnel = await startBestTunnel({
-      localUrl: `http://127.0.0.1:${server.port}`,
-      port: server.port,
-      tunnelName: flags.tunnelName || "",
-    });
-    tunnelUrl = await tunnel.ready;
-    tunnelProvider = tunnel.provider;
+    try {
+      tunnel = await startBestTunnel({
+        localUrl: `http://127.0.0.1:${server.port}`,
+        port: server.port,
+        tunnelName: flags.tunnelName || "",
+      });
+      tunnelUrl = await tunnel.ready;
+      tunnelProvider = tunnel.provider;
+    } catch (error) {
+      if (!tunnelTools.cloudflared && !tunnelTools.ngrok && !tunnelTools.npx) {
+        printTunnelInstallHelp();
+        process.exit(1);
+      }
+
+      throw error;
+    }
   }
 
   printServerBanner({
