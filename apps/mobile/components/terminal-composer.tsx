@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import { useRef, useState } from 'react';
-import { type TextInput as RNTextInput } from 'react-native';
-import { Pressable, Text, TextInput, View } from '@/tw';
-
-import { LiquidGlassCard } from '@/components/liquid-glass-card';
+import { Platform, Pressable as RNPressable, type TextInput as RNTextInput } from 'react-native';
+import { Text, TextInput, View } from '@/tw';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
 import { cx } from '@/lib/utils';
 
@@ -11,6 +12,9 @@ type Props = {
   sessionUrl: string;
   token?: string;
   auth?: string;
+  onReload?: () => void;
+  onClear?: () => void;
+  onForget?: () => void;
 };
 
 const QUICK_KEYS: { label: string; key: string; danger?: boolean }[] = [
@@ -18,11 +22,28 @@ const QUICK_KEYS: { label: string; key: string; danger?: boolean }[] = [
   { label: 'Esc', key: 'Escape' },
   { label: '\u2191', key: 'Up' },
   { label: '\u2193', key: 'Down' },
-  { label: 'Ctrl+C', key: 'C-c', danger: true },
-  { label: 'Ctrl+D', key: 'C-d' },
+  { label: 'C-c', key: 'C-c', danger: true },
+  { label: 'C-d', key: 'C-d' },
 ];
 
-export function TerminalComposer({ sessionUrl, token, auth }: Props) {
+function TapButton({ onPress, children, style }: {
+  onPress: () => void;
+  children: React.ReactNode;
+  style?: object;
+}) {
+  return (
+    <RNPressable
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => null);
+        onPress();
+      }}
+      style={({ pressed }) => [style, { opacity: pressed ? 0.5 : 1 }]}>
+      {children}
+    </RNPressable>
+  );
+}
+
+export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, onForget }: Props) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const inputRef = useRef<RNTextInput>(null);
@@ -36,75 +57,125 @@ export function TerminalComposer({ sessionUrl, token, auth }: Props) {
     setSending(false);
   };
 
-  return (
-    <LiquidGlassCard className="px-4 py-4">
-      <View className="flex-row items-center justify-between">
-        <Text className="text-[13px] font-semibold uppercase tracking-[0.16em] text-white/54">
-          Composer
-        </Text>
-        <Text className="text-[11px] text-white/36">
-          Enter sends
-        </Text>
-      </View>
+  const supportsGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+  const containerStyle = {
+    borderRadius: 24,
+    overflow: 'hidden' as const,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  };
 
-      <View className="mt-3 rounded-[18px] border border-white/10 bg-black/25 px-4 py-3">
-        <TextInput
-          ref={inputRef}
-          value={text}
-          onChangeText={setText}
-          placeholder="Type commands or paste text..."
-          placeholderTextColor="rgba(255,255,255,0.28)"
-          multiline
-          autoCapitalize="none"
-          autoCorrect={false}
-          className="min-h-[60px] text-[15px] text-white"
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
-        />
-      </View>
+  const keyPillStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  };
 
-      <View className="mt-3 flex-row items-center justify-between">
-        <View className="flex-1 flex-row flex-wrap gap-2">
-          {QUICK_KEYS.map(({ label, key, danger }) => (
-            <Pressable
-              key={key}
-              onPress={() => pressKey(key)}
-              className={cx(
-                'rounded-full border px-3 py-1.5',
-                danger ? 'border-[#ff6a6a]/30 bg-[#ff6a6a]/10' : 'border-white/10 bg-white/6',
-              )}>
-              <Text
-                className={cx(
-                  'text-[12px] font-semibold',
-                  danger ? 'text-[#ff6a6a]' : 'text-white/64',
-                )}>
-                {label}
-              </Text>
-            </Pressable>
-          ))}
+  const dangerPillStyle = {
+    ...keyPillStyle,
+    borderColor: 'rgba(255,106,106,0.3)',
+    backgroundColor: 'rgba(255,106,106,0.1)',
+  };
+
+  const actionStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    padding: 6,
+  };
+
+  const inner = (
+    <>
+      <View className="flex-row items-center gap-2">
+        <View className="flex-1 rounded-[16px] border border-white/10 bg-black/25 px-3 py-2.5">
+          <TextInput
+            ref={inputRef}
+            value={text}
+            onChangeText={setText}
+            placeholder="Type commands..."
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            autoCapitalize="none"
+            autoCorrect={false}
+            className="text-[15px] text-white"
+            onSubmitEditing={handleSend}
+            blurOnSubmit={false}
+          />
         </View>
-
-        <Pressable
+        <RNPressable
           onPress={handleSend}
           disabled={sending || !text.trim()}
-          className={cx(
-            'ml-3 flex-row items-center gap-1.5 rounded-full px-5 py-2.5',
-            text.trim() ? 'bg-rzr-cyan' : 'bg-white/8',
-          )}>
+          style={({ pressed }) => ({
+            alignItems: 'center' as const,
+            justifyContent: 'center' as const,
+            borderRadius: 999,
+            padding: 10,
+            backgroundColor: text.trim() ? '#7cf6ff' : 'rgba(255,255,255,0.08)',
+            opacity: pressed ? 0.6 : 1,
+            transform: [{ scale: pressed ? 0.92 : 1 }],
+          })}>
           <Ionicons
             name="arrow-up"
-            size={16}
+            size={18}
             color={text.trim() ? '#031017' : 'rgba(255,255,255,0.32)'}
           />
-          <Text
-            className={cx(
-              'text-[14px] font-semibold',
-              text.trim() ? 'text-[#031017]' : 'text-white/32',
-            )}>
-            Send
-          </Text>
-        </Pressable>
+        </RNPressable>
       </View>
-    </LiquidGlassCard>
+
+      <View className="mt-2.5 flex-row items-center gap-1.5">
+        {QUICK_KEYS.map(({ label, key, danger }) => (
+          <TapButton
+            key={key}
+            onPress={() => pressKey(key)}
+            style={danger ? dangerPillStyle : keyPillStyle}>
+            <Text
+              className={cx(
+                'text-[11px] font-semibold',
+                danger ? 'text-[#ff6a6a]' : 'text-white/52',
+              )}>
+              {label}
+            </Text>
+          </TapButton>
+        ))}
+
+        <View className="flex-1" />
+
+        {onReload ? (
+          <TapButton onPress={onReload} style={actionStyle}>
+            <Ionicons name="refresh" size={14} color="rgba(255,255,255,0.44)" />
+          </TapButton>
+        ) : null}
+        {onClear ? (
+          <TapButton onPress={onClear} style={actionStyle}>
+            <Ionicons name="close-circle-outline" size={14} color="rgba(255,255,255,0.44)" />
+          </TapButton>
+        ) : null}
+        {onForget ? (
+          <TapButton onPress={onForget} style={actionStyle}>
+            <Ionicons name="trash-outline" size={14} color="rgba(255,255,255,0.44)" />
+          </TapButton>
+        ) : null}
+      </View>
+    </>
+  );
+
+  if (supportsGlass) {
+    return (
+      <GlassView
+        glassEffectStyle="regular"
+        tintColor="rgba(255,255,255,0.03)"
+        style={containerStyle}>
+        <View className="px-3.5 py-3">{inner}</View>
+      </GlassView>
+    );
+  }
+
+  return (
+    <BlurView intensity={60} tint="dark" style={containerStyle}>
+      <View className="px-3.5 py-3">{inner}</View>
+    </BlurView>
   );
 }
