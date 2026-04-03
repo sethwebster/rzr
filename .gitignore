@@ -1,4 +1,5 @@
 .omx/
+.playwright-mcp/
 node_modules/
 npm-debug.log*
 *.tgz

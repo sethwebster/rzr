@@ -1,117 +1,280 @@
 # rzr
 
-`rzr` is a razor-thin remote around any terminal process.
+**`rzr` is a razor-thin remote around any terminal process.**
 
-It launches a command inside `tmux`, exposes a tiny local web server, and gives you a phone-friendly UI that can:
+It launches a command inside `tmux`, serves a tiny local web UI, and gives you a phone-friendly remote that can:
 
-- observe the live session
+- watch a live terminal session
 - paste input into it
 - send terminal keys like `Enter`, `Tab`, `Ctrl+C`, arrows, and `Esc`
-- let multiple devices watch the same session at once
+- let multiple devices observe the same session at once
 
-## Why this shape
+Use it to check in on `codex`, `claude`, shells, REPLs, and other TTY-first tools from your phone.
 
-Wrapping the command in `tmux` solves the hard part:
+<p align="center">
+  <img src="./assets/rzr-demo.gif" alt="Animated terminal-style demo of rzr launching a remote codex session" width="960">
+</p>
 
-- real terminal behavior for REPLs
-- durable sessions even if the browser disconnects
-- clean “observe” support by attaching to an existing tmux session
+---
 
-That makes this usable for things like `claude`, `codex`, shells, REPLs, and most other TTY-first tools.
+## Why it exists
 
-## Requirements
+Most “remote terminal” tools get complicated fast.
+
+`rzr` stays small on purpose:
+
+- **`tmux` handles terminal reality** — real TTY behavior, durable sessions, reconnectability
+- **`rzr` handles remote access** — a tiny web server, tokenized URL access, optional public tunnel, optional password gate
+- **your process stays normal** — you still run the tool you already use
+
+That makes it useful for:
+
+- checking a long-running coding agent from your phone
+- reconnecting to a CLI after your laptop sleeps or your browser disconnects
+- exposing an existing `tmux` session without changing how you work
+- letting another device observe the same live terminal
+
+---
+
+## Quickstart
+
+### Requirements
 
 - `node` 20+
 - `tmux`
 
-No npm dependencies.
+Optional for public internet access:
 
-## Usage
+- `cloudflared`
+- `ngrok`
+- or `npx localtunnel` as fallback
 
-Start a new wrapped session:
-
-```bash
-node ./src/cli.mjs run -- codex
-```
-
-Or run it straight from GitHub with `npx`:
-
-```bash
-npx github:sethwebster/rzr run -- codex
-```
-
-Or from npm:
+### Run from npm
 
 ```bash
 npx @sethwebster/rzr run -- codex
 ```
 
-Start a named session in a project directory:
+### Run from source
 
 ```bash
-node ./src/cli.mjs run --name claude --cwd /path/to/repo -- claude
+git clone https://github.com/sethwebster/rzr.git
+cd rzr
+./rzr run -- codex
 ```
 
-Expose an existing tmux session:
-
-```bash
-node ./src/cli.mjs attach claude
-```
-
-Start with a public Cloudflare tunnel:
-
-```bash
-./rzr run --tunnel -- codex
-./rzr run --tunnel --tunnel-name my-remote -- codex
-```
-
-or:
-
-```bash
-./rzr attach claude --tunnel
-```
-
-Start with a password gate:
-
-```bash
-./rzr run --password secret -- codex
-./rzr attach claude --password secret
-```
-
-Clients still need the URL token, and then must enter the password before the live session is exposed.
-
-This prints a public link you can open from your phone anywhere.
-Provider order is:
-
-- installed `cloudflared`
-- installed `ngrok`
-- `npx localtunnel`
-
-Tunnel naming behavior:
-
-- `cloudflared`: if authenticated and `--tunnel-name` looks like a hostname on a Cloudflare-managed zone, `rzr` will try a stable named tunnel first; otherwise it uses the name as Quick Tunnel metadata/label
-- `ngrok`: passes the name to ngrok as the tunnel name
-- `localtunnel`: requests the name as the public subdomain
-
-List tmux sessions:
-
-```bash
-node ./src/cli.mjs list
-```
-
-The CLI prints LAN URLs like:
+`rzr` will print URLs like:
 
 ```text
+http://localhost:4317/?token=...
 http://192.168.1.20:4317/?token=...
 ```
 
-Open that URL on your phone.
+Open one on your phone.
 
-## Notes
+---
 
-- `Ctrl+C` warns that the tmux session will keep running, then lets you keep it, kill it, or continue serving.
-- The target process remains in tmux, so you can reconnect later with `rzr attach <session>`.
-- `--tunnel` prefers `cloudflared`, then `ngrok`, then falls back to `npx localtunnel`, and tears the chosen tunnel down when `rzr` exits.
-- `--tunnel-name` lets you request a provider-level tunnel name. With authenticated Cloudflare and a hostname-shaped value, `rzr` will try a stable Cloudflare hostname before falling back to Quick Tunnel mode.
-- `--password` adds a second gate in front of the remote UI and API. The password is passed on the command line, so it will appear in shell history and process listings.
-- For truly arbitrary “observe an existing process that was not launched in tmux” support, you need OS-specific session snooping. This project intentionally stays thin and reliable by standardizing on tmux.
+## Install
+
+### Use without installing
+
+```bash
+npx @sethwebster/rzr run -- codex
+```
+
+### Install globally
+
+```bash
+npm install -g @sethwebster/rzr
+rzr run -- codex
+```
+
+### Run from this repo
+
+```bash
+./rzr run -- codex
+```
+
+`rzr` has **no npm runtime dependencies**.
+
+---
+
+## Common examples
+
+### Start a new wrapped session
+
+```bash
+rzr run -- codex
+```
+
+### Start a named session
+
+```bash
+rzr run --name claude -- claude
+```
+
+### Start in a specific project directory
+
+```bash
+rzr run --name codex --cwd /path/to/repo -- codex
+```
+
+### Start a shell instead of an app
+
+```bash
+rzr run --cwd /path/to/repo -- /bin/zsh
+```
+
+### Expose an existing `tmux` session
+
+```bash
+rzr attach claude
+```
+
+### Read-only remote view
+
+```bash
+rzr run --readonly -- codex
+```
+
+### Add a public tunnel
+
+```bash
+rzr run --tunnel -- codex
+```
+
+### Request a named tunnel
+
+```bash
+rzr run --tunnel --tunnel-name my-remote -- codex
+```
+
+### Add a password gate
+
+```bash
+rzr run --password secret -- codex
+rzr attach claude --password secret
+```
+
+### List `tmux` sessions
+
+```bash
+rzr list
+```
+
+---
+
+## Command reference
+
+### `rzr run`
+
+Launch a new command inside `tmux` and expose it through the web UI.
+
+```bash
+rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE] -- <command...>
+```
+
+Options:
+
+- `--name NAME` — tmux session name to create
+- `--port PORT` — local web server port, default `4317`
+- `--host HOST` — bind host, default `0.0.0.0`
+- `--cwd PATH` — working directory for the launched command
+- `--readonly` — disable remote input
+- `--tunnel` — create a public tunnel
+- `--tunnel-name VALUE` — request a provider-specific tunnel name
+- `--password VALUE` — require a password before exposing the live session
+- `-- <command...>` — the command to run inside `tmux`
+
+### `rzr attach`
+
+Expose an existing `tmux` session.
+
+```bash
+rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--tunnel-name VALUE] [--password VALUE]
+```
+
+### `rzr list`
+
+List local `tmux` sessions.
+
+```bash
+rzr list
+```
+
+---
+
+## Tunnel behavior
+
+When you use `--tunnel`, provider order is:
+
+1. installed `cloudflared`
+2. installed `ngrok`
+3. `npx localtunnel`
+
+`--tunnel-name` behavior depends on provider:
+
+- **Cloudflare**: if authenticated and the value looks like a hostname on a Cloudflare-managed zone, `rzr` tries a stable named tunnel first; otherwise it is used as Quick Tunnel metadata/label
+- **ngrok**: passes the value as the tunnel name
+- **localtunnel**: requests the value as the public subdomain
+
+The selected tunnel is torn down when `rzr` exits.
+
+---
+
+## Security model
+
+`rzr` uses two possible gates:
+
+1. a **URL token** in the query string
+2. an optional **password** from `--password`
+
+Notes:
+
+- clients always need the tokenized URL
+- if `--password` is enabled, clients must also enter the password before the UI and API are exposed
+- the password is passed on the command line, so it will appear in **shell history** and **process listings**
+- if you expose a public tunnel, treat that URL like a secret
+
+If you need stronger secret handling than a CLI flag, don’t rely on `--password` alone.
+
+---
+
+## Session behavior
+
+- `rzr run` creates a `tmux` session for the target command
+- the target process keeps running inside `tmux` even if the browser disconnects
+- you can reconnect later with `rzr attach <session>`
+- pressing `Ctrl+C` in the host terminal warns that the `tmux` session will keep running, then lets you keep it, kill it, or continue serving
+
+This project intentionally standardizes on `tmux`.
+
+If you need “observe an arbitrary existing process that was **not** launched in `tmux`,” that requires OS-specific session snooping and is out of scope here.
+
+---
+
+## Development
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+Regenerate the README demo asset:
+
+```bash
+python3 scripts/generate_readme_gif.py
+```
+
+Show CLI help:
+
+```bash
+rzr --help
+```
+
+---
+
+## License
+
+MIT

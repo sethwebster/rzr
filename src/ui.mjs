@@ -169,7 +169,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       .screen-wrap {
         flex: 1 1 auto;
         min-height: 0;
-        padding: 12px calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+        padding: 0;
       }
 
       .screen-shell {
@@ -177,12 +177,10 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         flex-direction: column;
         height: 100%;
         min-height: 0;
-        border: 1px solid var(--border);
-        border-radius: 22px;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-          var(--panel);
-        box-shadow: var(--shadow);
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
         overflow: hidden;
       }
 
@@ -196,6 +194,22 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         white-space: pre-wrap;
         word-break: break-word;
         overscroll-behavior: contain;
+      }
+
+      .ansi-bold {
+        font-weight: 700;
+      }
+
+      .ansi-dim {
+        opacity: 0.72;
+      }
+
+      .ansi-italic {
+        font-style: italic;
+      }
+
+      .ansi-underline {
+        text-decoration: underline;
       }
 
       .controls {
@@ -274,29 +288,6 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         background: linear-gradient(180deg, rgba(20, 28, 42, 0.58), rgba(10, 15, 24, 0.9));
       }
 
-      .composer-head {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px 12px;
-        align-items: baseline;
-        justify-content: space-between;
-        min-width: 0;
-        padding: 0 12px;
-      }
-
-      .composer-label {
-        display: grid;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .composer-label strong {
-        font-size: 12px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-      }
-
-      .composer-label span,
       .composer-meta {
         color: var(--muted);
         font-size: 12px;
@@ -496,10 +487,6 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           padding: 18px 24px 16px;
         }
 
-        .screen-wrap {
-          padding: 16px 24px 20px;
-        }
-
         .screen {
           padding: 22px 24px;
           font-size: 14px;
@@ -511,10 +498,6 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         .composer-shell {
           margin: 0 -14px;
-        }
-
-        .composer-head {
-          padding: 0 14px;
         }
       }
     </style>
@@ -569,13 +552,6 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
               </div>
 
               <div class="composer-shell">
-                <div class="composer-head">
-                  <div class="composer-label">
-                    <strong>Paste buffer</strong>
-                    <span>Queue text for the wrapped process</span>
-                  </div>
-                  <div class="composer-meta" id="composerMeta">${readonly ? "Read-only session" : "Buffer empty"}</div>
-                </div>
                 <textarea
                   id="composer"
                   placeholder="Type text to paste into the wrapped process"
@@ -728,6 +704,208 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
       }
 
+      function escapeHtml(value) {
+        return value
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function xtermColor(index) {
+        const base = [
+          "#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0",
+          "#808080", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+        ];
+
+        if (index < 16) {
+          return base[index];
+        }
+
+        if (index >= 16 && index <= 231) {
+          const value = index - 16;
+          const red = Math.floor(value / 36);
+          const green = Math.floor((value % 36) / 6);
+          const blue = value % 6;
+          const steps = [0, 95, 135, 175, 215, 255];
+          return "rgb(" + steps[red] + "," + steps[green] + "," + steps[blue] + ")";
+        }
+
+        const gray = 8 + ((index - 232) * 10);
+        return "rgb(" + gray + "," + gray + "," + gray + ")";
+      }
+
+      function cloneStyle(style) {
+        return {
+          fg: style.fg,
+          bg: style.bg,
+          bold: style.bold,
+          dim: style.dim,
+          italic: style.italic,
+          underline: style.underline,
+          inverse: style.inverse,
+        };
+      }
+
+      function defaultAnsiStyle() {
+        return {
+          fg: "",
+          bg: "",
+          bold: false,
+          dim: false,
+          italic: false,
+          underline: false,
+          inverse: false,
+        };
+      }
+
+      function styleToMarkup(style) {
+        const classes = [];
+        const declarations = [];
+        let foreground = style.fg;
+        let background = style.bg;
+
+        if (style.inverse) {
+          foreground = style.bg || "var(--bg)";
+          background = style.fg || "var(--text)";
+        }
+
+        if (foreground) {
+          declarations.push("color:" + foreground);
+        }
+
+        if (background) {
+          declarations.push("background-color:" + background);
+        }
+
+        if (style.bold) {
+          classes.push("ansi-bold");
+        }
+
+        if (style.dim) {
+          classes.push("ansi-dim");
+        }
+
+        if (style.italic) {
+          classes.push("ansi-italic");
+        }
+
+        if (style.underline) {
+          classes.push("ansi-underline");
+        }
+
+        return {
+          className: classes.join(" "),
+          style: declarations.join(";"),
+        };
+      }
+
+      function applyAnsiCodes(style, codes) {
+        if (codes.length === 0) {
+          return defaultAnsiStyle();
+        }
+
+        const next = cloneStyle(style);
+
+        for (let index = 0; index < codes.length; index += 1) {
+          const code = Number(codes[index]);
+
+          if (Number.isNaN(code)) {
+            continue;
+          }
+
+          if (code === 0) {
+            Object.assign(next, defaultAnsiStyle());
+          } else if (code === 1) {
+            next.bold = true;
+          } else if (code === 2) {
+            next.dim = true;
+          } else if (code === 3) {
+            next.italic = true;
+          } else if (code === 4) {
+            next.underline = true;
+          } else if (code === 7) {
+            next.inverse = true;
+          } else if (code === 22) {
+            next.bold = false;
+            next.dim = false;
+          } else if (code === 23) {
+            next.italic = false;
+          } else if (code === 24) {
+            next.underline = false;
+          } else if (code === 27) {
+            next.inverse = false;
+          } else if (code === 39) {
+            next.fg = "";
+          } else if (code === 49) {
+            next.bg = "";
+          } else if (code >= 30 && code <= 37) {
+            next.fg = xtermColor(code - 30);
+          } else if (code >= 40 && code <= 47) {
+            next.bg = xtermColor(code - 40);
+          } else if (code >= 90 && code <= 97) {
+            next.fg = xtermColor(code - 82);
+          } else if (code >= 100 && code <= 107) {
+            next.bg = xtermColor(code - 92);
+          } else if ((code === 38 || code === 48) && codes[index + 1] === "5" && codes[index + 2] != null) {
+            const color = xtermColor(Number(codes[index + 2]));
+            if (code === 38) {
+              next.fg = color;
+            } else {
+              next.bg = color;
+            }
+            index += 2;
+          } else if ((code === 38 || code === 48) && codes[index + 1] === "2" && codes[index + 4] != null) {
+            const red = Number(codes[index + 2]);
+            const green = Number(codes[index + 3]);
+            const blue = Number(codes[index + 4]);
+            const color = "rgb(" + red + "," + green + "," + blue + ")";
+            if (code === 38) {
+              next.fg = color;
+            } else {
+              next.bg = color;
+            }
+            index += 4;
+          }
+        }
+
+        return next;
+      }
+
+      function renderAnsi(text) {
+        const esc = String.fromCharCode(27);
+        const sgrPattern = new RegExp(esc + "\\\\[([0-9;]*)m", "g");
+        const oscPattern = new RegExp(esc + "\\\\][^\\u0007]*(\\u0007|" + esc + "\\\\\\\\)", "g");
+        let cursor = 0;
+        let style = defaultAnsiStyle();
+        let html = "";
+        let match;
+
+        while ((match = sgrPattern.exec(text)) !== null) {
+          const chunk = text.slice(cursor, match.index);
+          if (chunk) {
+            const markup = styleToMarkup(style);
+            const classAttribute = markup.className ? ' class="' + markup.className + '"' : "";
+            const styleAttribute = markup.style ? ' style="' + markup.style + '"' : "";
+            html += "<span" + classAttribute + styleAttribute + ">" + escapeHtml(chunk) + "</span>";
+          }
+
+          const codes = match[1] ? match[1].split(";") : [];
+          style = applyAnsiCodes(style, codes);
+          cursor = match.index + match[0].length;
+        }
+
+        const tail = text.slice(cursor).replace(oscPattern, "");
+        if (tail) {
+          const markup = styleToMarkup(style);
+          const classAttribute = markup.className ? ' class="' + markup.className + '"' : "";
+          const styleAttribute = markup.style ? ' style="' + markup.style + '"' : "";
+          html += "<span" + classAttribute + styleAttribute + ">" + escapeHtml(tail) + "</span>";
+        }
+
+        return html;
+      }
+
       function renderSnapshot(snapshot) {
         if (typeof snapshot.revision === "number" && snapshot.revision <= lastSnapshotRevision) {
           return;
@@ -735,7 +913,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         lastSnapshotRevision = typeof snapshot.revision === "number" ? snapshot.revision : lastSnapshotRevision;
         const beforeHeight = screen.scrollHeight;
-        screen.textContent = snapshot.screen || "";
+        screen.innerHTML = renderAnsi(snapshot.screen || "");
         maybeStickToBottom(beforeHeight);
 
         const dead = Boolean(snapshot.info && snapshot.info.dead);
@@ -895,10 +1073,33 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
 
         composer.addEventListener("keydown", async (event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             await pasteAndEnter(composer.value);
             clearComposer();
+          }
+        });
+
+        document.addEventListener("keydown", async (event) => {
+          if (gate && !gate.hidden) {
+            return;
+          }
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            await pressKey("Escape");
+            return;
+          }
+
+          if (event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "c") {
+            event.preventDefault();
+            await pressKey("C-c");
+            return;
+          }
+
+          if (event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "d") {
+            event.preventDefault();
+            await pressKey("C-d");
           }
         });
       }

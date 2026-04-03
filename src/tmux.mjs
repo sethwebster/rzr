@@ -44,6 +44,12 @@ function run(command, args, { input, allowFailure = false } = {}) {
   });
 }
 
+function normalizeCapturedPane(output) {
+  return output
+    .replace(/\r/g, "")
+    .replace(/(?:\n[\t ]*)+$/g, "");
+}
+
 export async function ensureTmux() {
   await run("tmux", ["-V"]);
 }
@@ -103,6 +109,7 @@ export async function createSession({ name, cwd, command, cols = 120, rows = 40 
 export async function capturePane(target, lines = 2000) {
   const { stdout } = await run("tmux", [
     "capture-pane",
+    "-e",
     "-p",
     "-J",
     "-S",
@@ -111,7 +118,7 @@ export async function capturePane(target, lines = 2000) {
     target,
   ]);
 
-  return stdout.replace(/\r/g, "");
+  return normalizeCapturedPane(stdout);
 }
 
 export async function getSessionInfo(target) {
