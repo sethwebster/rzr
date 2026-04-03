@@ -1,41 +1,13 @@
 {
-  "name": "@sethwebster/rzr",
-  "version": "0.1.3",
-  "description": "A razor-thin remote around any terminal process",
-  "license": "MIT",
-  "type": "module",
-  "files": [
-    "src",
-    "rzr",
-    "README.md",
-    "LICENSE"
-  ],
-  "bin": {
-    "rzr": "src/cli.mjs"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sethwebster/rzr.git"
-  },
-  "bugs": {
-    "url": "https://github.com/sethwebster/rzr/issues"
-  },
-  "homepage": "https://github.com/sethwebster/rzr#readme",
-  "keywords": [
-    "tmux",
-    "terminal",
-    "remote",
-    "cli",
-    "tty"
+  "name": "rzr-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
   ],
   "scripts": {
-    "start": "node ./src/cli.mjs",
-    "test": "node --test"
+    "start": "npm run start --workspace @sethwebster/rzr",
+    "test": "npm run test --workspace @sethwebster/rzr",
+    "readme:sync": "node ./scripts/sync-package-readme.mjs",
+    "version:patch": "npm version patch --workspace @sethwebster/rzr"
   }
 }
