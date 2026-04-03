@@ -1,7 +1,10 @@
 import {
   Canvas,
+  Circle,
   Fill,
   Group,
+  Line as SkiaLine,
+  Oval,
   RoundedRect,
   Shader,
   Skia,
@@ -58,15 +61,15 @@ vec4 main(vec2 pos) {
 
 const SCREEN_W = Dimensions.get('window').width;
 const SCREEN_H = Dimensions.get('window').height;
-const CHAR_DELAY_MS = 70;
+const CHAR_DELAY_MS = 35;
 const ERROR_RATE = 0.12; // 12% chance per char
-const NOTICE_DELAY_MS = 400; // ms before noticing mistake
+const NOTICE_DELAY_MS = 200; // ms before noticing mistake
 const CURSOR_W = 2;
 const CURSOR_H = 28;
 
 // Precompute a deterministic keystroke script for a label
 // Each step: { buffer: string (what's on screen), cursorPos: number, durationMs: number }
-type KeyFrame = { buffer: string; cursor: number; ms: number };
+type KeyFrame = { buffer: string; cursor: number; ms: number; mode?: 'text' | 'icon' | 'collapse' | 'bloom' };
 
 function buildTypingScript(label: string, seed: number, { hitEnter = false }: { hitEnter?: boolean } = {}): KeyFrame[] {
   const frames: KeyFrame[] = [];
@@ -159,9 +162,17 @@ function buildTypingScript(label: string, seed: number, { hitEnter = false }: { 
   }
 
   if (hitEnter) {
-    // brief pause, then "enter" — keep the typed line, add a new prompt below
-    frames.push({ buffer, cursor, ms: 200 + Math.round(rand() * 150) });
-    frames.push({ buffer: buffer + '\n', cursor: buffer.length + 1, ms: 50 });
+    frames.push({ buffer, cursor, ms: 50 });
+    const collapseBuffer = buffer + '\n';
+    const collapseCursor = collapseBuffer.length;
+    frames.push({ buffer: collapseBuffer, cursor: collapseCursor, ms: 10 });
+    frames.push({ buffer: collapseBuffer, cursor: collapseCursor, ms: 200, mode: 'collapse' });
+    // blip: tiny bright flash at center
+    frames.push({ buffer: '', cursor: 0, ms: 80, mode: 'blip' });
+    // globe scales up toward camera
+    frames.push({ buffer: '', cursor: 0, ms: 500, mode: 'globe-zoom' });
+    // settle
+    frames.push({ buffer: '', cursor: 0, ms: 50, mode: 'icon' });
   }
 
   return frames;
@@ -205,36 +216,54 @@ export function StaticBackground({ opacity = 0.15, label, labelVisible, labelCen
       { buffer: '> ', cursor: 2, ms: 40 },
     ];
     // Build label script
-    const labelScript = buildTypingScript(label, 42, { hitEnter: true });
+    const labelScript = buildTypingScript(label, Math.floor(Math.random() * 2147483647), { hitEnter: true });
     // Offset label script: prepend "> " to each buffer, shift cursor +2
+    const noTextModes = ['icon', 'blip', 'globe-zoom'];
     const shifted = labelScript.map((f) => ({
-      buffer: '> ' + f.buffer,
-      cursor: f.cursor + 2,
+      buffer: f.mode && noTextModes.includes(f.mode) ? '' : '> ' + f.buffer,
+      cursor: f.mode && noTextModes.includes(f.mode) ? 0 : f.cursor + 2,
       ms: f.ms,
+      mode: f.mode,
     }));
     // Recompute cumulative times: prefix first, then shifted
     let t = 0;
     const all = [...prefix, ...shifted];
     return all.map((f) => { t += f.ms; return { ...f, ms: t }; });
-  }, [label]);
+  }, [label, typeStartMs]);
 
   // Current frame index from script based on elapsed time
   const currentFrame = useDerivedValue(() => {
     if (!labelVisible || typeStartClock.value < 0 || !script.length) {
-      return { buffer: '', cursor: 0 };
+      return { buffer: '', cursor: 0, mode: 'text' as const };
     }
     const elapsed = clock.value - typeStartClock.value - 150;
-    if (elapsed < 0) return { buffer: '', cursor: 0 };
-    // Find the last frame whose cumulative ms <= elapsed
+    if (elapsed < 0) return { buffer: '', cursor: 0, mode: 'text' as const };
     let idx = 0;
     for (let i = 0; i < script.length; i++) {
       if (script[i].ms <= elapsed) idx = i;
       else break;
     }
-    return { buffer: script[idx].buffer, cursor: script[idx].cursor };
+    return { buffer: script[idx].buffer, cursor: script[idx].cursor, mode: (script[idx].mode ?? 'text') as string };
   });
 
   const baseY = useDerivedValue(() => (labelCenterY ?? SCREEN_H / 2) + 10);
+
+  // Progress within collapse/bloom phase (0→1)
+  const transitionProgress = useDerivedValue(() => {
+    if (!labelVisible || typeStartClock.value < 0 || !script.length) return 0;
+    const elapsed = clock.value - typeStartClock.value - 150;
+    if (elapsed < 0) return 0;
+    // Find current frame index and how far into the next frame we are
+    let idx = 0;
+    for (let i = 0; i < script.length; i++) {
+      if (script[i].ms <= elapsed) idx = i;
+      else break;
+    }
+    const frameStart = script[idx].ms;
+    const frameEnd = idx + 1 < script.length ? script[idx + 1].ms : frameStart + 500;
+    const duration = frameEnd - frameStart;
+    return Math.min(1, Math.max(0, (elapsed - frameStart) / duration));
+  });
 
   // Monospace char width
   const charW = useMemo(() => font?.measureText('M').width ?? 16, [font]);
@@ -246,14 +275,28 @@ export function StaticBackground({ opacity = 0.15, label, labelVisible, labelCen
       </Fill>
 
       {font && label && labelVisible ? (
-        <ScriptedTypewriter
-          font={font}
-          currentFrame={currentFrame}
-          baseY={baseY}
-          clock={clock}
-          charW={charW}
-          labelLength={label.length}
-        />
+        <>
+          <ScriptedTypewriter
+            font={font}
+            currentFrame={currentFrame}
+            baseY={baseY}
+            clock={clock}
+            charW={charW}
+            labelLength={label.length}
+            collapseProgress={transitionProgress}
+          />
+          <BlipFlash
+            currentFrame={currentFrame}
+            baseY={baseY}
+            progress={transitionProgress}
+          />
+          <GlobeIcon
+            currentFrame={currentFrame}
+            baseY={baseY}
+            clock={clock}
+            progress={transitionProgress}
+          />
+        </>
       ) : null}
     </Canvas>
   );
@@ -267,22 +310,23 @@ function ScriptedTypewriter({
   clock,
   charW,
   labelLength,
+  collapseProgress,
 }: {
   font: ReturnType<typeof useFont>;
-  currentFrame: { value: { buffer: string; cursor: number } };
+  currentFrame: { value: { buffer: string; cursor: number; mode: string } };
   baseY: { value: number };
   clock: { value: number };
   charW: number;
   labelLength: number;
+  collapseProgress: { value: number };
 }) {
-  // We render up to labelLength*2 char slots (buffer can be longer during errors)
   const MAX_CHARS = labelLength + 15;
   const slots = Array.from({ length: MAX_CHARS }, (_, i) => i);
 
   return (
     <>
       {slots.map((i) => (
-        <ScriptedChar key={i} index={i} font={font} currentFrame={currentFrame} baseY={baseY} clock={clock} charW={charW} />
+        <ScriptedChar key={i} index={i} font={font} currentFrame={currentFrame} baseY={baseY} clock={clock} charW={charW} collapseProgress={collapseProgress} />
       ))}
       <ScriptedCursor font={font} currentFrame={currentFrame} baseY={baseY} clock={clock} charW={charW} labelLength={labelLength} />
     </>
@@ -296,14 +340,18 @@ function ScriptedChar({
   baseY,
   clock,
   charW,
+  collapseProgress,
 }: {
   index: number;
   font: ReturnType<typeof useFont>;
-  currentFrame: { value: { buffer: string; cursor: number } };
+  currentFrame: { value: { buffer: string; cursor: number; mode: string } };
   baseY: { value: number };
   clock: { value: number };
   charW: number;
+  collapseProgress: { value: number };
 }) {
+  const centerX = SCREEN_W / 2;
+
   const charText = useDerivedValue(() => {
     const buf = currentFrame.value.buffer;
     if (index >= buf.length) return '';
@@ -311,10 +359,10 @@ function ScriptedChar({
     return ch === '\n' ? '' : ch;
   });
 
-  const charX = useDerivedValue(() => {
+  // Normal X position for this char
+  const normalX = useDerivedValue(() => {
     const buf = currentFrame.value.buffer;
     if (index >= buf.length || buf[index] === '\n') return -999;
-    // find which line this char is on and its column
     const lines = buf.split('\n');
     let charIdx = 0;
     for (let line = 0; line < lines.length; line++) {
@@ -324,15 +372,14 @@ function ScriptedChar({
         const lineW = lineLen * charW;
         return (SCREEN_W - lineW) / 2 + col * charW;
       }
-      charIdx += lineLen + 1; // +1 for \n
+      charIdx += lineLen + 1;
     }
     return -999;
   });
 
-  const charY = useDerivedValue(() => {
+  const normalY = useDerivedValue(() => {
     const buf = currentFrame.value.buffer;
     if (index >= buf.length) return -999;
-    // count newlines before this index
     let lineNum = 0;
     for (let j = 0; j < index; j++) {
       if (buf[j] === '\n') lineNum++;
@@ -340,15 +387,82 @@ function ScriptedChar({
     return baseY.value + lineNum * 36;
   });
 
+  // How far this char is from center (0 = center, 1 = furthest) — for staggering
+  const distanceRank = useDerivedValue(() => {
+    const buf = currentFrame.value.buffer;
+    if (index >= buf.length || buf[index] === '\n') return 1;
+    const lines = buf.split('\n');
+    let charIdx = 0;
+    for (let line = 0; line < lines.length; line++) {
+      const lineLen = lines[line].length;
+      if (index < charIdx + lineLen) {
+        const col = index - charIdx;
+        const mid = (lineLen - 1) / 2;
+        return lineLen > 1 ? Math.abs(col - mid) / mid : 0;
+      }
+      charIdx += lineLen + 1;
+    }
+    return 1;
+  });
+
+  // Per-char collapse: all chars reach center at t=1, but center chars
+  // start moving early while edge chars barely budge until the final moment
+  const charX = useDerivedValue(() => {
+    const nx = normalX.value;
+    if (nx === -999) return -999;
+    if (currentFrame.value.mode !== 'collapse') return nx;
+    const t = collapseProgress.value;
+    const rank = distanceRank.value; // 0=center, 1=edge
+    // Higher exponent for outer chars = they wait longer then snap in
+    // center: exp=2 (smooth), edge: exp=6 (dramatic whip)
+    const exp = 2 + rank * 4;
+    const ease = Math.pow(t, exp);
+    return nx + (centerX - nx) * ease;
+  });
+
+  const charY = useDerivedValue(() => {
+    const ny = normalY.value;
+    if (ny === -999) return -999;
+    if (currentFrame.value.mode !== 'collapse') return ny;
+    const t = collapseProgress.value;
+    const rank = distanceRank.value;
+    const exp = 2 + rank * 4;
+    const ease = Math.pow(t, exp);
+    return ny + (baseY.value - ny) * ease;
+  });
+
+  const charScale = useDerivedValue(() => {
+    if (currentFrame.value.mode !== 'collapse') return 1;
+    const t = collapseProgress.value;
+    const rank = distanceRank.value;
+    const exp = 2 + rank * 4;
+    const ease = Math.pow(t, exp);
+    return Math.max(0.01, 1 - ease);
+  });
+
   const charOpacity = useDerivedValue(() => {
     const buf = currentFrame.value.buffer;
     if (index >= buf.length || buf[index] === '\n') return 0;
+    if (currentFrame.value.mode === 'collapse') {
+      const t = collapseProgress.value;
+      const rank = distanceRank.value;
+      const exp = 2 + rank * 4;
+      const ease = Math.pow(t, exp);
+      // get brighter as they approach center
+      return Math.min(1, 0.8 + 0.2 * ease);
+    }
     const t = Math.floor(clock.value / 125);
     return 0.82 + 0.18 * Math.sin((t + index) * 0.7);
   });
 
+  const charTransform = useDerivedValue(() => [{ scale: charScale.value }]);
+  const charOrigin = useDerivedValue(() => ({ x: charX.value + charW / 2, y: charY.value - 10 }));
+
   return (
-    <Group opacity={charOpacity}>
+    <Group
+      opacity={charOpacity}
+      transform={charTransform}
+      origin={charOrigin}>
       <SkiaText
         x={charX}
         y={charY}
@@ -371,7 +485,7 @@ function ScriptedCursor({
   labelLength,
 }: {
   font: ReturnType<typeof useFont>;
-  currentFrame: { value: { buffer: string; cursor: number } };
+  currentFrame: { value: { buffer: string; cursor: number; mode: string } };
   baseY: { value: number };
   clock: { value: number };
   charW: number;
@@ -398,6 +512,8 @@ function ScriptedCursor({
   });
 
   const cursorOpacity = useDerivedValue(() => {
+    const m = currentFrame.value.mode;
+    if (m === 'collapse' || m === 'blip' || m === 'globe-zoom' || m === 'icon') return 0;
     return Math.sin(clock.value * 0.008) > 0 ? 0.9 : 0;
   });
 
@@ -421,6 +537,130 @@ function ScriptedCursor({
         color="rgba(124, 246, 255, 0.9)">
         <Shadow dx={0} dy={0} blur={8} color="rgba(124, 246, 255, 0.6)" />
       </RoundedRect>
+    </Group>
+  );
+}
+
+function BlipFlash({
+  currentFrame,
+  baseY,
+  progress,
+}: {
+  currentFrame: { value: { buffer: string; cursor: number; mode: string } };
+  baseY: { value: number };
+  progress: { value: number };
+}) {
+  const cx = SCREEN_W / 2;
+  const cy = useDerivedValue(() => baseY.value);
+
+  const blipOpacity = useDerivedValue(() => {
+    if (currentFrame.value.mode !== 'blip') return 0;
+    // flash bright then fade
+    const t = progress.value;
+    return t < 0.3 ? 1 : 1 - (t - 0.3) / 0.7;
+  });
+
+  const blipR = useDerivedValue(() => {
+    if (currentFrame.value.mode !== 'blip') return 0;
+    return 3 + progress.value * 4;
+  });
+
+  const blipBlur = useDerivedValue(() => 12 + progress.value * 20);
+  const blipBlur2 = useDerivedValue(() => blipBlur.value * 2);
+
+  return (
+    <Group opacity={blipOpacity}>
+      <Circle cx={cx} cy={cy} r={blipR} color="rgba(255, 255, 255, 1)">
+        <Shadow dx={0} dy={0} blur={blipBlur} color="rgba(124, 246, 255, 1)" />
+        <Shadow dx={0} dy={0} blur={blipBlur2} color="rgba(124, 246, 255, 0.5)" />
+      </Circle>
+    </Group>
+  );
+}
+
+const GLOBE_R = 24;
+
+function GlobeIcon({
+  currentFrame,
+  baseY,
+  clock,
+  progress,
+}: {
+  currentFrame: { value: { buffer: string; cursor: number; mode: string } };
+  baseY: { value: number };
+  clock: { value: number };
+  progress: { value: number };
+}) {
+  const mode = useDerivedValue(() => currentFrame.value.mode);
+  const isVisible = useDerivedValue(() => mode.value === 'globe-zoom' || mode.value === 'icon');
+
+  const globeOpacity = useDerivedValue(() => {
+    if (!isVisible.value) return 0;
+    if (mode.value === 'globe-zoom') return Math.min(1, progress.value * 2);
+    const t = Math.floor(clock.value / 125);
+    return 0.82 + 0.18 * Math.sin(t * 0.7);
+  });
+
+  // During globe-zoom: scale from 0 → 1 with overshoot (flying at camera)
+  const globeScale = useDerivedValue(() => {
+    if (mode.value === 'globe-zoom') {
+      const t = progress.value;
+      // elastic overshoot: goes to ~1.2 then settles to 1
+      if (t < 0.6) return (t / 0.6) * 1.25;
+      const settle = (t - 0.6) / 0.4;
+      return 1.25 - 0.25 * settle;
+    }
+    return 1;
+  });
+
+  const cx = SCREEN_W / 2;
+  const cy = useDerivedValue(() => baseY.value);
+
+  const meridianPhase = useDerivedValue(() => clock.value * 0.0008);
+  const m1Rx = useDerivedValue(() => GLOBE_R * (0.3 + 0.7 * Math.abs(Math.sin(meridianPhase.value))));
+  const m2Rx = useDerivedValue(() => GLOBE_R * (0.3 + 0.7 * Math.abs(Math.sin(meridianPhase.value + 1.047))));
+  const m3Rx = useDerivedValue(() => GLOBE_R * (0.3 + 0.7 * Math.abs(Math.sin(meridianPhase.value + 2.094))));
+  const m1X = useDerivedValue(() => cx - m1Rx.value);
+  const m1W = useDerivedValue(() => m1Rx.value * 2);
+  const m2X = useDerivedValue(() => cx - m2Rx.value);
+  const m2W = useDerivedValue(() => m2Rx.value * 2);
+  const m3X = useDerivedValue(() => cx - m3Rx.value);
+  const m3W = useDerivedValue(() => m3Rx.value * 2);
+  const mY = useDerivedValue(() => cy.value - GLOBE_R);
+  const eqY = useDerivedValue(() => cy.value - GLOBE_R * 0.15);
+  const ltY = useDerivedValue(() => cy.value - GLOBE_R * 0.65);
+  const lbY = useDerivedValue(() => cy.value + GLOBE_R * 0.35);
+
+  const globeTransform = useDerivedValue(() => [{ scale: globeScale.value }]);
+  const globeOrigin = useDerivedValue(() => ({ x: cx, y: cy.value }));
+
+  // Extra glow blur during zoom
+  const zoomBlur = useDerivedValue(() => {
+    if (mode.value === 'globe-zoom') return 16 + (1 - progress.value) * 20;
+    return 12;
+  });
+
+  return (
+    <Group opacity={globeOpacity} transform={globeTransform} origin={globeOrigin}>
+      <Circle cx={cx} cy={cy} r={GLOBE_R} color="rgba(124, 246, 255, 0.9)"
+        style="stroke" strokeWidth={2}>
+        <Shadow dx={0} dy={0} blur={zoomBlur} color="rgba(124, 246, 255, 0.5)" />
+      </Circle>
+
+      <Oval x={cx - GLOBE_R} y={eqY} width={GLOBE_R * 2} height={GLOBE_R * 0.3}
+        color="rgba(124, 246, 255, 0.9)" style="stroke" strokeWidth={1.5} />
+
+      <Oval x={m1X} y={mY} width={m1W} height={GLOBE_R * 2}
+        color="rgba(124, 246, 255, 0.7)" style="stroke" strokeWidth={1.5} />
+      <Oval x={m2X} y={mY} width={m2W} height={GLOBE_R * 2}
+        color="rgba(124, 246, 255, 0.5)" style="stroke" strokeWidth={1} />
+      <Oval x={m3X} y={mY} width={m3W} height={GLOBE_R * 2}
+        color="rgba(124, 246, 255, 0.5)" style="stroke" strokeWidth={1} />
+
+      <Oval x={cx - GLOBE_R * 0.7} y={ltY} width={GLOBE_R * 1.4} height={GLOBE_R * 0.3}
+        color="rgba(124, 246, 255, 0.4)" style="stroke" strokeWidth={1} />
+      <Oval x={cx - GLOBE_R * 0.7} y={lbY} width={GLOBE_R * 1.4} height={GLOBE_R * 0.3}
+        color="rgba(124, 246, 255, 0.4)" style="stroke" strokeWidth={1} />
     </Group>
   );
 }
