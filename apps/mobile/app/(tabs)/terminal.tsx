@@ -4,6 +4,12 @@ import * as Linking from 'expo-linking';
 import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  FadeInDown,
+  FadeOutDown,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import { ActivityIndicator, Pressable, Text, View, SafeAreaView } from '@/tw';
 import { WebView } from 'react-native-webview';
 
@@ -11,6 +17,7 @@ import { GlassSafeAreaView } from '@/components/glass-safe-area-view';
 import { PremiumBackdrop } from '@/components/premium-backdrop';
 import { SignalChip } from '@/components/signal-chip';
 import { TerminalComposer } from '@/components/terminal-composer';
+import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { accentClasses, createSessionId } from '@/lib/utils';
 import { useSession } from '@/providers/session-provider';
 
@@ -18,6 +25,13 @@ export default function TerminalScreen() {
   const { activeSession, clearActiveSession, removeSession } = useSession();
   const [webKey, setWebKey] = useState(0);
   const insets = useSafeAreaInsets();
+
+  useHideTabBar(!!activeSession);
+
+  const keyboard = useAnimatedKeyboard();
+  const composerAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboard.height.value }],
+  }));
 
   if (!activeSession) {
     return (
@@ -41,6 +55,7 @@ export default function TerminalScreen() {
 
   const palette = accentClasses(activeSession.accent);
   const headerHeight = insets.top + 80;
+  const composerBottom = insets.bottom + 12;
   const composerHeight = 240;
 
   const injectedCSS = `.screen{padding-top:${headerHeight}px!important;padding-bottom:${composerHeight}px!important}html,body{background:#050816!important}`;
@@ -98,7 +113,10 @@ export default function TerminalScreen() {
         }
       />
 
-      <View className="absolute bottom-24 left-4 right-4">
+      <Animated.View
+        entering={FadeInDown.duration(320).springify()}
+        exiting={FadeOutDown.duration(200)}
+        style={[{ position: 'absolute', bottom: composerBottom, left: 16, right: 16 }, composerAnimStyle]}>
         <TerminalComposer
           sessionUrl={activeSession.url}
           onReload={() => {
@@ -108,7 +126,7 @@ export default function TerminalScreen() {
           onClear={clearActiveSession}
           onForget={() => removeSession(activeSession.id)}
         />
-      </View>
+      </Animated.View>
     </View>
   );
 }

@@ -198,6 +198,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       .screen-shell {
+        position: relative;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -259,10 +260,14 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       .controls {
-        flex: 0 1 auto;
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        flex: 0 0 auto;
         display: grid;
-        gap: 16px;
-        padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+        gap: 14px;
+        width: 100%;
+        padding: 0 0 calc(18px + env(safe-area-inset-bottom));
         border-top: 1px solid rgba(125, 144, 182, 0.14);
         background:
           radial-gradient(circle at top, rgba(89, 132, 255, 0.1), transparent 38%),
@@ -274,18 +279,22 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       .controls-inner {
-        width: min(100%, 1040px);
-        margin: 0 auto;
+        width: 100%;
+        margin: 0;
         display: grid;
-        gap: 18px;
+        gap: 14px;
       }
 
       .composer-card {
         position: relative;
         display: grid;
         gap: 0;
+        width: 100%;
         border: 1px solid rgba(136, 157, 198, 0.2);
-        border-radius: 22px;
+        border-right: 0;
+        border-left: 0;
+        border-bottom: 0;
+        border-radius: 26px 26px 0 0;
         overflow: hidden;
         background:
           linear-gradient(180deg, rgba(17, 22, 34, 0.98), rgba(11, 15, 24, 0.98));
@@ -451,7 +460,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         flex-wrap: wrap;
         align-items: center;
         gap: 10px;
-        padding: 2px;
+        padding: 0 18px;
       }
 
       .toolbar-group {
@@ -561,7 +570,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         justify-content: space-between;
         gap: 12px 18px;
         min-width: 0;
-        padding: 4px 2px 0;
+        padding: 0 18px;
       }
 
       .status-group {
@@ -732,10 +741,6 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           padding: 22px 24px;
           font-size: 14px;
         }
-
-        .controls {
-          padding: 24px 24px calc(22px + env(safe-area-inset-bottom));
-        }
       }
 
       @media (max-width: 719px) {
@@ -747,7 +752,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         .controls {
           max-height: 58dvh;
-          padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+          padding: 0 0 calc(14px + env(safe-area-inset-bottom));
           gap: 14px;
         }
 
@@ -756,7 +761,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
 
         .composer-card {
-          border-radius: 18px;
+          border-radius: 18px 18px 0 0;
         }
 
         .composer-topbar {
@@ -810,6 +815,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         .toolbar {
           gap: 10px;
+          padding: 0 14px;
         }
 
         .toolbar-group {
@@ -832,6 +838,10 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         .toolbar-divider {
           display: none;
+        }
+
+        .statusbar {
+          padding: 0 14px;
         }
       }
 

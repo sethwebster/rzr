@@ -72,7 +72,7 @@ const config: ExpoConfig = {
   },
   extra: {
     eas: {
-      projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID,
+      projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? '85de42f2-6e44-4bd1-98a6-d4678973f949',
     },
     rzr: {
       demoUrl: 'https://demo.free.rzr.live/?token=glass-cyan-preview',

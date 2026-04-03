@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View, SafeAreaView } from '@/tw';
 
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
-import { PremiumBackdrop } from '@/components/premium-backdrop';
+import { StaticBackground } from '@/components/static-background';
 import { PremiumButton } from '@/components/premium-button';
 import {
   accentClasses,
@@ -45,7 +45,12 @@ export default function HomeScreen() {
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       await res.json();
 
-      connectSession({ label, url, passwordHint, accent, source: 'manual' });
+      const trimmed = label.trim();
+      if (sessions.some((s) => s.label === trimmed)) {
+        throw new Error(`A session labeled "${trimmed}" already exists.`);
+      }
+
+      connectSession({ label: trimmed, url, passwordHint, accent, source: 'manual' });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => null);
       router.push('/(tabs)/terminal');
     } catch (nextError) {
@@ -62,13 +67,13 @@ export default function HomeScreen() {
 
   return (
     <View className="flex-1 bg-rzr-ink">
-      <PremiumBackdrop />
+      <StaticBackground />
       <SafeAreaView edges={['top']} className="flex-1">
         <ScrollView
           contentContainerStyle={{ paddingBottom: 140 }}
           showsVerticalScrollIndicator={false}>
           <View className="px-6 pb-10 pt-4">
-            <LiquidGlassCard key={activeSession?.id ?? 'new'} className="px-5 py-5">
+            <LiquidGlassCard key={activeSession?.id ?? 'new'} className="bg-transparent px-5 py-5" tintColor="rgba(255,255,255,0.03)">
               <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
                 Connect
               </Text>
