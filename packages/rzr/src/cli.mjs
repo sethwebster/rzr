@@ -17,6 +17,7 @@ import {
 import { startBestTunnel } from "./tunnel.mjs";
 import { checkForUpdate, isUpdateCheckEnabled } from "./update.mjs";
 import {
+  attachSession,
   createSession,
   ensureTmux,
   hasSession,
@@ -547,6 +548,7 @@ function createDashboardPrinter({
   port,
   token,
   urls,
+  onEnterSession,
   passwordEnabled,
   tunnelName,
   tunnelEnabled,
@@ -590,6 +592,7 @@ function createDashboardPrinter({
     requestCount: 0,
     lastActivityAt: 0,
     lastActivityLabel: "waiting for traffic",
+    enteringSession: false,
   };
   const stdin = process.stdin;
   const restoreRawMode = process.stdin.isTTY && typeof stdin.setRawMode === "function";
@@ -688,6 +691,7 @@ function createDashboardPrinter({
     }
 
     stdin.off("data", onData);
+    stdin.pause();
     if (restoreRawMode) {
       stdin.setRawMode(wasRaw);
     }
@@ -701,6 +705,19 @@ function createDashboardPrinter({
 
   function toggleHelpScreen() {
     state.screenMode = state.screenMode === "help" ? "status" : "help";
+    render();
+  }
+
+  function suspendDashboard() {
+    state.suspended = true;
+    detachInput();
+    process.stdout.write("\x1b[?25h");
+    process.stdout.write("\x1b[H\x1b[2J");
+  }
+
+  function resumeDashboard() {
+    state.suspended = false;
+    attachInput();
     render();
   }
 
@@ -735,23 +752,51 @@ function createDashboardPrinter({
   function footerText(width) {
     const sections = state.screenMode === "status"
       ? [
+          `${bold}v${reset} enter tmux`,
           `${bold}q${reset} tunnel QR`,
           `${bold}?${reset} shortcuts`,
           `${bold}Ctrl+C${reset} exit menu`,
         ]
       : state.screenMode === "qr"
         ? [
+            `${bold}v${reset} enter tmux`,
             `${bold}q${reset} back to status`,
             `${bold}?${reset} shortcuts`,
             `${bold}Esc${reset} return`,
           ]
         : [
+            `${bold}v${reset} enter tmux`,
             `${bold}?${reset} close shortcuts`,
             `${bold}q${reset} tunnel QR`,
             `${bold}Esc${reset} return`,
           ];
 
     return `${inverse}${padAnsiRight(` ${sections.join("  ·  ")} `, width)}${reset}`;
+  }
+
+  async function enterSession() {
+    if (state.enteringSession || typeof onEnterSession !== "function") {
+      return;
+    }
+
+    state.enteringSession = true;
+    suspendDashboard();
+    process.stdout.write(`Entering tmux session "${target}".\n`);
+    process.stdout.write(`Detach with Ctrl+B d to return to the dashboard.\n\n`);
+
+    try {
+      await onEnterSession();
+    } catch (error) {
+      state.logLines.push(`${red}Unable to attach to tmux:${reset} ${error.message}`);
+      if (state.logLines.length > 250) {
+        state.logLines = state.logLines.slice(-250);
+      }
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = "tmux attach failed";
+    } finally {
+      state.enteringSession = false;
+      resumeDashboard();
+    }
   }
 
   function onData(chunk) {
@@ -769,6 +814,11 @@ function createDashboardPrinter({
 
     if (key === "q" || key === "Q") {
       toggleQrScreen();
+      return;
+    }
+
+    if (key === "v" || key === "V") {
+      void enterSession();
       return;
     }
 
@@ -836,7 +886,7 @@ function createDashboardPrinter({
         "",
         `${bold}Session${reset}   ${target}`,
         `${bold}Tunnel${reset}    ${tunnelLine}`,
-        `${bold}Keys${reset}      ${dim}q toggles · esc/enter returns${reset}`,
+        `${bold}Keys${reset}      ${dim}v enters tmux · q toggles · esc/enter returns${reset}`,
         "",
       ];
 
@@ -871,10 +921,12 @@ function createDashboardPrinter({
 
       contentRows = [
         `${bold}${magenta}Navigation${reset}`,
+        `  ${bold}v${reset}         attach this terminal to the tmux session`,
         `  ${bold}q${reset}         toggle tunnel QR view`,
         `  ${bold}?${reset}         toggle this shortcuts sheet`,
         `  ${bold}Esc${reset}       return to live bridge status`,
         `  ${bold}Enter${reset}     return to live bridge status`,
+        `  ${bold}Ctrl+B d${reset}  detach from tmux and return here`,
         "",
         `${bold}${magenta}Exit interstitial${reset}`,
         `  ${bold}Ctrl+C${reset}    open the exit prompt`,
@@ -986,15 +1038,10 @@ function createDashboardPrinter({
       render();
     },
     suspend() {
-      state.suspended = true;
-      detachInput();
-      process.stdout.write("\x1b[?25h");
-      process.stdout.write("\x1b[H\x1b[2J");
+      suspendDashboard();
     },
     resume() {
-      state.suspended = false;
-      attachInput();
-      render();
+      resumeDashboard();
     },
     stop() {
       if (healthcheckTimer) {
@@ -1161,6 +1208,9 @@ async function main() {
     port: server.port,
     token,
     urls: server.urls,
+    onEnterSession: async () => {
+      await attachSession(target);
+    },
     passwordEnabled: Boolean(flags.password),
     tunnelName: flags.tunnelName || "",
     tunnelEnabled,

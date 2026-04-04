@@ -12,9 +12,80 @@ export type ConnectFlowStateId =
   | 'terminal-reveal'
   | 'connected';
 
-export type ConnectCanvasMode = 'static' | 'typing' | 'vortex' | 'whiteout';
+export type ConnectCanvasMode =
+  | 'static'
+  | 'typing'
+  | 'vortex'
+  | 'pending-vortex'
+  | 'whiteout'
+  | 'terminal-reveal';
 export type ConnectOverlayMode = 'none' | 'chooser' | 'manual' | 'qr';
 export type ConnectFrameMode = 'boot-tv' | 'immersed';
+export type ConnectAnimationSceneId =
+  | 'idle'
+  | 'typing'
+  | 'vortexCollapse'
+  | 'vortexHold'
+  | 'whiteout'
+  | 'terminalReveal';
+
+export type IdleScene = {
+  id: 'idle';
+  canvas: 'static';
+};
+
+export type TypingScene = {
+  id: 'typing';
+  canvas: 'typing';
+  anchorY: number;
+  cardWidth: number;
+  fontSize: number;
+  enterDurationMs: number;
+  exitDurationMs: number;
+  holdDurationMs: number;
+};
+
+export type VortexCollapseScene = {
+  id: 'vortexCollapse';
+  canvas: 'vortex';
+  anchorY: number;
+  variant: 'collapse';
+  durationMs: number;
+  ringSizes: [number, number, number];
+};
+
+export type VortexHoldScene = {
+  id: 'vortexHold';
+  canvas: 'pending-vortex';
+  anchorY: number;
+  variant: 'hold';
+  durationMs: number;
+  ringSizes: [number, number, number];
+};
+
+export type WhiteoutScene = {
+  id: 'whiteout';
+  canvas: 'whiteout';
+  mode: 'flash-in';
+  durationMs: number;
+  maxOpacity: number;
+};
+
+export type TerminalRevealScene = {
+  id: 'terminalReveal';
+  canvas: 'terminal-reveal';
+  mode: 'reveal-terminal';
+  durationMs: number;
+  maxOpacity: number;
+};
+
+export type ConnectAnimationScene =
+  | IdleScene
+  | TypingScene
+  | VortexCollapseScene
+  | VortexHoldScene
+  | WhiteoutScene
+  | TerminalRevealScene;
 
 export type ConnectDraft = {
   label: string;
@@ -44,6 +115,7 @@ export type ConnectVisualState = {
   frame: ConnectFrameMode;
   overlay: ConnectOverlayMode;
   canvas: ConnectCanvasMode;
+  motion: ConnectAnimationScene;
   showKeyboardButton: boolean;
   showCameraButton: boolean;
   showTerminalHint: boolean;

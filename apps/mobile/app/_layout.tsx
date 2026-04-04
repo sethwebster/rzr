@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
 import { useNotificationBridge } from '@/hooks/use-notification-bridge';
+import { useUniversalLink } from '@/hooks/use-universal-link';
 import { SessionProvider } from '@/providers/session-provider';
 import '../global.css';
 
@@ -28,6 +29,7 @@ const NAV_THEME = {
 
 function NotificationBridge() {
   useNotificationBridge();
+  useUniversalLink();
   return null;
 }
 
@@ -41,6 +43,37 @@ export default function RootLayout() {
             <Stack
               screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#050816' } }}>
               <Stack.Screen name="(tabs)" />
+              <Stack.Screen
+                name="manual-entry"
+                options={{
+                  presentation: 'formSheet',
+                  sheetAllowedDetents: [0.6, 0.92],
+                  sheetInitialDetentIndex: 0,
+                  sheetGrabberVisible: true,
+                  sheetCornerRadius: 28,
+                }}
+              />
+              <Stack.Screen
+                name="qr-scanner"
+                options={{
+                  presentation: 'formSheet',
+                  sheetAllowedDetents: [0.6, 0.92],
+                  sheetInitialDetentIndex: 0,
+                  sheetGrabberVisible: true,
+                  sheetCornerRadius: 28,
+                }}
+              />
+              <Stack.Screen
+                name="composer-v2"
+                options={{
+                  presentation: 'formSheet',
+                  contentStyle: { backgroundColor: 'transparent' },
+                  sheetAllowedDetents: [0.45, 0.92],
+                  sheetInitialDetentIndex: 0,
+                  sheetGrabberVisible: true,
+                  sheetCornerRadius: 28,
+                }}
+              />
               <Stack.Screen
                 name="connect"
                 options={{ presentation: 'transparentModal', animation: 'fade' }}

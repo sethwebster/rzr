@@ -254,6 +254,47 @@ export async function sendKey(target, key) {
   await run("tmux", ["send-keys", "-t", target, key]);
 }
 
+export async function attachSession(target) {
+  const env = { ...process.env };
+  delete env.TMUX;
+  if (!env.TERM || env.TERM === "dumb") {
+    env.TERM = "xterm-256color";
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("tmux", ["attach-session", "-t", target], {
+      stdio: ["inherit", "inherit", "pipe"],
+      env,
+    });
+    let stderr = "";
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+      process.stderr.write(chunk);
+    });
+
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve({ code, signal });
+        return;
+      }
+
+      const error = new Error(
+        stderr.trim()
+          || (signal
+            ? `tmux attach-session terminated with signal ${signal}`
+            : `tmux attach-session exited with code ${code}`),
+      );
+      error.code = code;
+      error.signal = signal;
+      error.stderr = stderr;
+      reject(error);
+    });
+  });
+}
+
 export async function resizeSession(target, cols, rows) {
   await run("tmux", ["resize-window", "-t", target, "-x", String(cols), "-y", String(rows)]);
 }

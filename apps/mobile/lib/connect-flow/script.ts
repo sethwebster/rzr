@@ -4,11 +4,20 @@ import {
   type ConnectFlowStateConfig,
   type ConnectFlowStateId,
 } from '@/lib/connect-flow/types';
+import {
+  idleScene,
+  terminalRevealScene,
+  typingScene,
+  vortexCollapseScene,
+  vortexHoldScene,
+  whiteoutScene,
+} from '@/lib/connect-flow/animation-script';
 
 const chooserVisual = {
   frame: 'immersed',
   overlay: 'chooser',
   canvas: 'static',
+  motion: idleScene,
   showKeyboardButton: true,
   showCameraButton: true,
   showTerminalHint: true,
@@ -18,6 +27,7 @@ const manualVisual = {
   frame: 'immersed',
   overlay: 'manual',
   canvas: 'static',
+  motion: idleScene,
   showKeyboardButton: false,
   showCameraButton: false,
   showTerminalHint: true,
@@ -27,6 +37,7 @@ const qrVisual = {
   frame: 'immersed',
   overlay: 'qr',
   canvas: 'static',
+  motion: idleScene,
   showKeyboardButton: false,
   showCameraButton: false,
   showTerminalHint: true,
@@ -35,7 +46,8 @@ const qrVisual = {
 const typingVisual = {
   frame: 'immersed',
   overlay: 'none',
-  canvas: 'typing',
+  canvas: typingScene.canvas,
+  motion: typingScene,
   showKeyboardButton: false,
   showCameraButton: false,
   showTerminalHint: false,
@@ -44,7 +56,18 @@ const typingVisual = {
 const vortexVisual = {
   frame: 'immersed',
   overlay: 'none',
-  canvas: 'vortex',
+  canvas: vortexCollapseScene.canvas,
+  motion: vortexCollapseScene,
+  showKeyboardButton: false,
+  showCameraButton: false,
+  showTerminalHint: false,
+} as const;
+
+const pendingVortexVisual = {
+  frame: 'immersed',
+  overlay: 'none',
+  canvas: vortexHoldScene.canvas,
+  motion: vortexHoldScene,
   showKeyboardButton: false,
   showCameraButton: false,
   showTerminalHint: false,
@@ -53,7 +76,18 @@ const vortexVisual = {
 const whiteoutVisual = {
   frame: 'immersed',
   overlay: 'none',
-  canvas: 'whiteout',
+  canvas: whiteoutScene.canvas,
+  motion: whiteoutScene,
+  showKeyboardButton: false,
+  showCameraButton: false,
+  showTerminalHint: false,
+} as const;
+
+const terminalRevealVisual = {
+  frame: 'immersed',
+  overlay: 'none',
+  canvas: terminalRevealScene.canvas,
+  motion: terminalRevealScene,
   showKeyboardButton: false,
   showCameraButton: false,
   showTerminalHint: false,
@@ -76,6 +110,7 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
       frame: 'boot-tv',
       overlay: 'none',
       canvas: 'static',
+      motion: idleScene,
       showKeyboardButton: false,
       showCameraButton: false,
       showTerminalHint: false,
@@ -183,7 +218,7 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
   },
   'connect-typing': {
     visual: typingVisual,
-    after: { delayMs: 1500, target: 'connect-vortex' },
+    after: { delayMs: typingScene.holdDurationMs, target: 'connect-vortex' },
     onEnter: () => ({
       phaseStartedAt: Date.now(),
     }),
@@ -205,7 +240,7 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
   'connect-vortex': {
     visual: vortexVisual,
     after: {
-      delayMs: 700,
+      delayMs: vortexCollapseScene.durationMs,
       target: (snapshot: ConnectFlowSnapshot) =>
         snapshot.context.connectionStatus === 'ready' ? 'connect-whiteout' : 'connect-pending',
     },
@@ -233,7 +268,7 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
     },
   },
   'connect-pending': {
-    visual: vortexVisual,
+    visual: pendingVortexVisual,
     onEnter: () => ({ phaseStartedAt: Date.now() }),
     on: {
       CONNECTION_READY: {
@@ -259,16 +294,16 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
   },
   'connect-whiteout': {
     visual: whiteoutVisual,
-    after: { delayMs: 280, target: 'terminal-reveal' },
+    after: { delayMs: whiteoutScene.durationMs, target: 'terminal-reveal' },
     onEnter: () => ({ phaseStartedAt: Date.now() }),
   },
   'terminal-reveal': {
-    visual: whiteoutVisual,
-    after: { delayMs: 240, target: 'connected' },
+    visual: terminalRevealVisual,
+    after: { delayMs: terminalRevealScene.durationMs, target: 'connected' },
     onEnter: () => ({ phaseStartedAt: Date.now() }),
   },
   connected: {
-    visual: whiteoutVisual,
+    visual: terminalRevealVisual,
     onEnter: () => ({ phaseStartedAt: Date.now() }),
   },
 };

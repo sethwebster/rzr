@@ -274,6 +274,7 @@ If you need stronger secret handling than a CLI flag, don’t rely on `--passwor
 - `rzr run` creates a `tmux` session for the target command
 - the target process keeps running inside `tmux` even if the browser disconnects
 - you can reconnect later with `rzr attach <session>`
+- while the local status dashboard is visible, press `v` to attach your terminal directly to the tmux session; `rzr` prints a reminder that `Ctrl+B d` returns you to the dashboard
 - pressing `Ctrl+C` in the host terminal warns that the `tmux` session will keep running, then lets you keep it, kill it, or continue serving
 
 This project intentionally standardizes on `tmux`.

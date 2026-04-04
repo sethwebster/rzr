@@ -13,7 +13,12 @@ Native Expo companion for `rzr`.
 ## Run
 
 ```bash
-npm run mobile:start
-npm run mobile:ios
-npm run mobile:android
+bun run mobile:start
+bun run mobile:ios
+bun run mobile:ios:device
+bun run mobile:android
 ```
+
+Use Bun + the repo scripts / local Expo CLI only.
+
+Do **not** run `npx expo@latest ...` from this workspace — it can fail with a misleading `Failed to resolve react-native` error even when `react-native` is installed correctly.

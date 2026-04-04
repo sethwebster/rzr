@@ -1,42 +1,36 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Link, type Href } from 'expo-router';
 import {
   type ComponentProps,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from 'react';
 import { Dimensions, StyleSheet, View as RNView } from 'react-native';
 import Animated, {
-  Easing,
   FadeIn,
   FadeInDown,
   FadeOut,
   FadeOutDown,
   interpolate,
-  runOnJS,
   type SharedValue,
   useAnimatedStyle,
-  useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
 
+import { ConnectSceneCanvas } from '@/components/connect/connect-scene-canvas';
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { PremiumBackdrop } from '@/components/premium-backdrop';
 import { PremiumButton } from '@/components/premium-button';
 import { StaticBackground } from '@/components/static-background';
 import {
-  useCursorBlink,
   useScannedGuard,
   useShellTransition,
-  useTypingFrameScheduler,
-  useVortexAnimation,
-  useWhiteoutFlash,
 } from '@/hooks/use-connect-stage-animations';
-import { buildPrefixedScript } from '@/lib/typing-script';
+import { useManualMorph } from '@/hooks/use-manual-morph';
 import {
+  type ConnectAnimationScene,
   type ConnectDraft,
   type ConnectFlowSnapshot,
 } from '@/lib/connect-flow/types';
@@ -71,11 +65,13 @@ export function ConnectStage({
   const [permission, requestPermission] = useCameraPermissions();
   const { shellStyle, vignetteStyle } = useShellTransition(snapshot.visual.frame);
   const scannedRef = useScannedGuard(snapshot.visual.overlay);
-  const [manualSourceRect, setManualSourceRect] = useState<SharedRect | null>(null);
-  const [manualMorphPhase, setManualMorphPhase] = useState<'idle' | 'opening' | 'closing'>(
-    'idle',
-  );
-  const manualMorph = useSharedValue(0);
+  const {
+    sourceRect: manualSourceRect,
+    morphPhase: manualMorphPhase,
+    morph: manualMorph,
+    startOpen: startMorphOpen,
+    startClose: startManualClose,
+  } = useManualMorph(actions.cancel);
 
   const manualTargetRect = useMemo<SharedRect>(
     () => ({
@@ -87,53 +83,31 @@ export function ConnectStage({
     [],
   );
 
-  const startManualOpen = useCallback(
-    (rect: SharedRect) => {
-      setManualSourceRect(rect);
-      setManualMorphPhase('opening');
-      actions.openManual();
-    },
-    [actions],
+  const manualEntryHref = useMemo<Href>(
+    () => ({
+      pathname: '/manual-entry',
+      params: {
+        label: snapshot.context.draft.label,
+        remoteUrl: snapshot.context.draft.remoteUrl,
+        passwordHint: snapshot.context.draft.passwordHint,
+        accent: snapshot.context.draft.accent,
+      },
+    }),
+    [
+      snapshot.context.draft.accent,
+      snapshot.context.draft.label,
+      snapshot.context.draft.passwordHint,
+      snapshot.context.draft.remoteUrl,
+    ],
   );
 
-  const startManualClose = useCallback(() => {
-    if (!manualSourceRect) {
-      actions.cancel();
-      return;
-    }
-    setManualMorphPhase('closing');
-  }, [actions, manualSourceRect]);
-
-  useEffect(() => {
-    if (manualMorphPhase === 'opening') {
-      manualMorph.value = 0;
-      manualMorph.value = withTiming(
-        1,
-        { duration: 320, easing: Easing.out(Easing.cubic) },
-        (finished) => {
-          if (finished) {
-            runOnJS(setManualMorphPhase)('idle');
-          }
-        },
-      );
-      return;
-    }
-
-    if (manualMorphPhase === 'closing') {
-      manualMorph.value = 1;
-      manualMorph.value = withTiming(
-        0,
-        { duration: 260, easing: Easing.inOut(Easing.cubic) },
-        (finished) => {
-          if (finished) {
-            runOnJS(setManualMorphPhase)('idle');
-            runOnJS(setManualSourceRect)(null);
-            runOnJS(actions.cancel)();
-          }
-        },
-      );
-    }
-  }, [actions, manualMorph, manualMorphPhase]);
+  const startManualOpen = useCallback(
+    (rect: SharedRect) => {
+      startMorphOpen(rect);
+      actions.openManual();
+    },
+    [actions, startMorphOpen],
+  );
 
   return (
     <View className="flex-1 bg-rzr-ink">
@@ -151,7 +125,7 @@ export function ConnectStage({
         {snapshot.visual.overlay === 'chooser' ? (
           <ChooserOverlay
             error={snapshot.context.error}
-            onManual={startManualOpen}
+            manualHref={manualEntryHref}
             onQr={async () => {
               if (!permission?.granted) {
                 await requestPermission();
@@ -161,24 +135,13 @@ export function ConnectStage({
           />
         ) : null}
 
-        {snapshot.visual.overlay === 'manual' && manualMorphPhase === 'idle' ? (
-          <ManualOverlay
-            draft={snapshot.context.draft}
-            error={snapshot.context.error}
-            onChange={actions.updateDraft}
-            onBack={startManualClose}
-            onSubmit={actions.submitManual}
-            onOpenQr={actions.openQr}
-          />
-        ) : null}
-
         {snapshot.visual.overlay === 'qr' ? (
           <QrOverlay
             error={snapshot.context.error}
             permissionGranted={!!permission?.granted}
             onRequestPermission={requestPermission}
             onCancel={actions.cancel}
-            onManual={actions.openManual}
+            manualHref={manualEntryHref}
             onCode={(value) => {
               if (scannedRef.current) return;
               scannedRef.current = true;
@@ -187,19 +150,12 @@ export function ConnectStage({
           />
         ) : null}
 
-        {snapshot.visual.canvas === 'typing' ? (
-          <TypingSequence
+        {snapshot.visual.canvas !== 'static' ? (
+          <ConnectSceneCanvas
+            scene={snapshot.visual.motion as Exclude<ConnectAnimationScene, { canvas: 'static' }>}
             label={snapshot.context.draft.label}
             phaseStartedAt={snapshot.context.phaseStartedAt}
           />
-        ) : null}
-
-        {snapshot.visual.canvas === 'vortex' ? (
-          <VortexSequence label={snapshot.context.draft.label} />
-        ) : null}
-
-        {snapshot.visual.canvas === 'whiteout' ? (
-          <WhiteoutSequence phaseStartedAt={snapshot.context.phaseStartedAt} />
         ) : null}
 
         {snapshot.visual.showTerminalHint ? (
@@ -216,6 +172,19 @@ export function ConnectStage({
       {(snapshot.visual.overlay === 'manual' || manualMorphPhase !== 'idle') && (
         <View pointerEvents="none" style={styles.manualModalScrim} />
       )}
+
+      {snapshot.visual.overlay === 'manual' && manualMorphPhase === 'idle' ? (
+        <ManualOverlay
+          draft={snapshot.context.draft}
+          error={snapshot.context.error}
+          onChange={actions.updateDraft}
+          onBack={startManualClose}
+          onSubmit={actions.submitManual}
+          onOpenQr={actions.openQr}
+          animateEntrance={!manualSourceRect}
+          targetRect={manualTargetRect}
+        />
+      ) : null}
 
       {manualSourceRect && manualMorphPhase !== 'idle' ? (
         <ManualMorphOverlay
@@ -250,11 +219,11 @@ export function ConnectStage({
 
 function ChooserOverlay({
   error,
-  onManual,
+  manualHref,
   onQr,
 }: {
   error: string | null;
-  onManual: (rect: SharedRect) => void;
+  manualHref: Href;
   onQr: () => void;
 }) {
   return (
@@ -280,7 +249,7 @@ function ChooserOverlay({
           icon="keypad-outline"
           title="Manual entry"
           body="Paste a live control surface URL."
-          onPress={onManual}
+          href={manualHref}
           enteringDelay={80}
         />
         <ChooserButton
@@ -307,47 +276,46 @@ function ChooserButton({
   icon,
   title,
   body,
-  onPress,
+  href,
   enteringDelay,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   body: string;
-  onPress: (rect: SharedRect) => void;
+  href?: Href;
   enteringDelay: number;
 }) {
+  const content = (
+    <BroadcastCard className="px-5 py-5">
+      <View className="flex-row items-center gap-4">
+        <View className="h-14 w-14 items-center justify-center rounded-full border border-white/12 bg-white/6">
+          <Ionicons name={icon} size={24} color="#f8fbff" />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[20px] font-semibold tracking-[-0.04em] text-white">
+            {title}
+          </Text>
+          <Text className="mt-1 text-[14px] leading-6 text-white/52">{body}</Text>
+        </View>
+        <Ionicons name="arrow-forward" size={18} color="rgba(255,255,255,0.44)" />
+      </View>
+    </BroadcastCard>
+  );
+
   return (
     <Animated.View
       entering={FadeInDown.delay(enteringDelay).duration(380)}
       exiting={FadeOut.duration(120)}>
       <RNView>
-        <Pressable
-          onPress={(event) => {
-            const { pageX, pageY, locationX, locationY } = event.nativeEvent;
-            const x = pageX - locationX;
-            const y = pageY - locationY;
-            onPress({
-              x,
-              y,
-              width: SCREEN_W - 48,
-              height: 106,
-            });
-          }}>
-          <BroadcastCard className="px-5 py-5">
-            <View className="flex-row items-center gap-4">
-              <View className="h-14 w-14 items-center justify-center rounded-full border border-white/12 bg-white/6">
-                <Ionicons name={icon} size={24} color="#f8fbff" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-[20px] font-semibold tracking-[-0.04em] text-white">
-                  {title}
-                </Text>
-                <Text className="mt-1 text-[14px] leading-6 text-white/52">{body}</Text>
-              </View>
-              <Ionicons name="arrow-forward" size={18} color="rgba(255,255,255,0.44)" />
-            </View>
-          </BroadcastCard>
-        </Pressable>
+        {href ? (
+          <Link href={href} asChild>
+            <Link.AppleZoom>
+              <Pressable collapsable={false}>{content}</Pressable>
+            </Link.AppleZoom>
+          </Link>
+        ) : (
+          <Pressable>{content}</Pressable>
+        )}
       </RNView>
     </Animated.View>
   );
@@ -360,6 +328,8 @@ function ManualOverlay({
   onBack,
   onSubmit,
   onOpenQr,
+  animateEntrance,
+  targetRect,
 }: {
   draft: ConnectDraft;
   error: string | null;
@@ -367,22 +337,51 @@ function ManualOverlay({
   onBack: () => void;
   onSubmit: () => void;
   onOpenQr: () => void;
+  animateEntrance: boolean;
+  targetRect: SharedRect;
 }) {
   return (
     <Animated.View
-      entering={FadeInDown.duration(320)}
-      exiting={FadeOutDown.duration(200)}
-      className="flex-1 items-center justify-center">
-      <BroadcastCard className="w-full max-w-[380px] rounded-[18px] border-0 border-transparent bg-transparent px-5 py-5">
-        <ManualCardContent
-          draft={draft}
-          error={error}
-          onChange={onChange}
-          onBack={onBack}
-          onSubmit={onSubmit}
-          onOpenQr={onOpenQr}
-        />
-      </BroadcastCard>
+      entering={animateEntrance ? FadeInDown.duration(320) : undefined}
+      exiting={animateEntrance ? FadeOutDown.duration(200) : undefined}
+      style={StyleSheet.absoluteFillObject}>
+      <View
+        style={[
+          styles.manualMorph,
+          styles.manualCardFrame,
+          {
+            left: targetRect.x,
+            top: targetRect.y,
+          },
+        ]}>
+        <View style={styles.manualMorphInner}>
+          <ManualCardContent
+            draft={draft}
+            error={error}
+            onChange={onChange}
+            onBack={onBack}
+            onSubmit={onSubmit}
+            onOpenQr={onOpenQr}
+            mode="interactive"
+          />
+        </View>
+        <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+          {CARD_SCANLINES.map((top) => (
+            <View
+              key={top}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top,
+                height: 1,
+                backgroundColor: 'rgba(255,255,255,0.035)',
+              }}
+            />
+          ))}
+          <View style={styles.broadcastTint} />
+        </View>
+      </View>
     </Animated.View>
   );
 }
@@ -394,6 +393,7 @@ function ManualCardContent({
   onBack,
   onSubmit,
   onOpenQr,
+  mode,
 }: {
   draft: ConnectDraft;
   error: string | null;
@@ -401,89 +401,112 @@ function ManualCardContent({
   onBack: () => void;
   onSubmit: () => void;
   onOpenQr: () => void;
+  mode: 'interactive' | 'preview';
 }) {
+  const interactive = mode === 'interactive';
+
   return (
-    <>
-      <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
-        Manual entry
-      </Text>
-      <Text className="mt-1 text-[14px] leading-6 text-white/56">
-        Paste a session URL to open a live bridge.
-      </Text>
+    <View style={styles.manualCardContent}>
+      <View>
+        <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
+          Manual entry
+        </Text>
+        <Text className="mt-1 text-[14px] leading-6 text-white/56">
+          Paste a live control surface URL to open a live bridge.
+        </Text>
 
-      <View className="mt-4 gap-3">
-        <InputField
-          label="Label"
-          value={draft.label}
-          onChangeText={(value) => onChange({ label: value })}
-          placeholder="Night Shift"
-        />
-        <InputField
-          label="Remote URL"
-          value={draft.remoteUrl}
-          onChangeText={(value) => onChange({ remoteUrl: value })}
-          placeholder="https://yourname.free.rzr.live/?token=..."
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-        />
-        <InputField
-          label="Password hint"
-          value={draft.passwordHint}
-          onChangeText={(value) => onChange({ passwordHint: value })}
-          placeholder="Optional — not stored server-side"
-        />
+        <View className="mt-4 gap-3">
+          <InputField
+            label="Label"
+            value={draft.label}
+            onChangeText={interactive ? (value) => onChange({ label: value }) : undefined}
+            editable={interactive}
+            placeholder="Night Shift"
+          />
+          <InputField
+            label="Remote URL"
+            value={draft.remoteUrl}
+            onChangeText={interactive ? (value) => onChange({ remoteUrl: value }) : undefined}
+            editable={interactive}
+            placeholder="https://yourname.free.rzr.live/?token=..."
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
+          <InputField
+            label="Password hint"
+            value={draft.passwordHint}
+            onChangeText={
+              interactive ? (value) => onChange({ passwordHint: value }) : undefined
+            }
+            editable={interactive}
+            placeholder="Optional — not stored server-side"
+          />
+        </View>
+
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          {ACCENTS.map((option) => {
+            const palette = accentClasses(option);
+            const chipClassName = cx(
+              'rounded-full border px-3 py-2',
+              option === draft.accent ? palette.border : 'border-white/10',
+              option === draft.accent ? palette.background : 'bg-white/5',
+            );
+            const textClassName = cx(
+              'text-[12px] font-semibold capitalize',
+              option === draft.accent ? palette.text : 'text-white/56',
+            );
+
+            if (!interactive) {
+              return (
+                <View key={option} className={chipClassName}>
+                  <Text className={textClassName}>{option}</Text>
+                </View>
+              );
+            }
+
+            return (
+              <Pressable
+                key={option}
+                onPress={() => onChange({ accent: option })}
+                className={chipClassName}>
+                <Text className={textClassName}>{option}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
-      <View className="mt-4 flex-row flex-wrap gap-2">
-        {ACCENTS.map((option) => {
-          const palette = accentClasses(option);
-          return (
-            <Pressable
-              key={option}
-              onPress={() => onChange({ accent: option })}
-              className={cx(
-                'rounded-full border px-3 py-2',
-                option === draft.accent ? palette.border : 'border-white/10',
-                option === draft.accent ? palette.background : 'bg-white/5',
-              )}>
-              <Text
-                className={cx(
-                  'text-[12px] font-semibold capitalize',
-                  option === draft.accent ? palette.text : 'text-white/56',
-                )}>
-                {option}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <View>
+        {error ? <Text className="mt-4 text-[13px] text-[#ff96cf]">{error}</Text> : null}
 
-      {error ? <Text className="mt-4 text-[13px] text-[#ff96cf]">{error}</Text> : null}
-
-      <View className="mt-5 flex-row gap-3">
-        <PremiumButton
-          label="Back"
-          icon="arrow-back"
-          variant="secondary"
-          className="px-4"
-          onPress={onBack}
-        />
-        <PremiumButton
-          label="Scan"
-          icon="scan-outline"
-          variant="secondary"
-          className="px-4"
-          onPress={onOpenQr}
-        />
-        <PremiumButton
-          label="Launch"
-          icon="arrow-forward"
-          onPress={onSubmit}
-          className="flex-1"
-        />
+        <View className="mt-5 flex-row gap-3">
+          <PremiumButton
+            label="Back"
+            icon="arrow-back"
+            variant="secondary"
+            className="px-4"
+            disabled={!interactive}
+            onPress={onBack}
+          />
+          <PremiumButton
+            label="Scan"
+            icon="scan-outline"
+            variant="secondary"
+            className="px-4"
+            disabled={!interactive}
+            onPress={onOpenQr}
+          />
+          <PremiumButton
+            label="Launch"
+            icon="arrow-forward"
+            disabled={!interactive}
+            onPress={onSubmit}
+            className="flex-1"
+          />
+        </View>
       </View>
-    </>
+    </View>
   );
 }
 
@@ -508,14 +531,14 @@ function QrOverlay({
   permissionGranted,
   onRequestPermission,
   onCancel,
-  onManual,
+  manualHref,
   onCode,
 }: {
   error: string | null;
   permissionGranted: boolean;
   onRequestPermission: () => Promise<unknown>;
   onCancel: () => void;
-  onManual: () => void;
+  manualHref: Href;
   onCode: (value: string) => void;
 }) {
   const [manualValue, setManualValue] = useState('');
@@ -585,13 +608,17 @@ function QrOverlay({
             className="px-4"
             onPress={onCancel}
           />
-          <PremiumButton
-            label="Manual"
-            icon="keypad-outline"
-            variant="secondary"
-            className="px-4"
-            onPress={onManual}
-          />
+          <Link href={manualHref} asChild>
+            <Link.AppleZoom>
+              <PremiumButton
+                label="Manual"
+                icon="keypad-outline"
+                variant="secondary"
+                className="px-4"
+                collapsable={false}
+              />
+            </Link.AppleZoom>
+          </Link>
           <PremiumButton
             label="Use pasted code"
             icon="qr-code-outline"
@@ -606,66 +633,6 @@ function QrOverlay({
       </BroadcastCard>
     </Animated.View>
   );
-}
-
-function TypingSequence({
-  label,
-  phaseStartedAt,
-}: {
-  label: string;
-  phaseStartedAt: number;
-}) {
-  const frames = useMemo(
-    () => buildPrefixedScript(label || 'Connect', phaseStartedAt % 2147483647, { includeEffects: false }),
-    [label, phaseStartedAt],
-  );
-  const frameIndex = useTypingFrameScheduler(frames);
-  const cursorStyle = useCursorBlink();
-  const frame = frames[Math.min(frameIndex, Math.max(0, frames.length - 1))];
-
-  return (
-    <Animated.View
-      entering={FadeIn.duration(220)}
-      exiting={FadeOut.duration(120)}
-      className="absolute left-0 right-0 top-[34%] items-center">
-      <View className="rounded-[28px] border border-white/10 bg-black/18 px-5 py-4">
-        <View className="flex-row items-center">
-          <Text className="font-mono text-[29px] tracking-[0.02em] text-rzr-cyan">
-            {frame?.buffer ?? '> '}
-          </Text>
-          <Animated.View style={cursorStyle}>
-            <Text className="font-mono text-[29px] text-rzr-cyan">▌</Text>
-          </Animated.View>
-        </View>
-      </View>
-    </Animated.View>
-  );
-}
-
-function VortexSequence({ label }: { label: string }) {
-  const { ringA, ringB, ringC, textStyle } = useVortexAnimation();
-
-  return (
-    <Animated.View
-      entering={FadeIn.duration(100)}
-      exiting={FadeOut.duration(120)}
-      className="absolute inset-0 items-center justify-center">
-      <Animated.View style={[styles.vortexRing, styles.vortexRingA, ringA]} />
-      <Animated.View style={[styles.vortexRing, styles.vortexRingB, ringB]} />
-      <Animated.View style={[styles.vortexRing, styles.vortexRingC, ringC]} />
-      <Animated.View style={textStyle}>
-        <Text className="font-mono text-[30px] tracking-[0.04em] text-rzr-cyan">
-          {`> ${label}`}
-        </Text>
-      </Animated.View>
-    </Animated.View>
-  );
-}
-
-function WhiteoutSequence({ phaseStartedAt }: { phaseStartedAt: number }) {
-  const style = useWhiteoutFlash(phaseStartedAt);
-
-  return <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, styles.whiteout, style]} />;
 }
 
 function ScanlineOverlay() {
@@ -722,6 +689,7 @@ function ManualMorphOverlay({
   }));
 
   const bodyStyle = useAnimatedStyle(() => ({
+    flex: 1,
     opacity: interpolate(progress.value, [0, 0.45, 1], [0, 0, 1]),
     transform: [
       {
@@ -733,64 +701,16 @@ function ManualMorphOverlay({
   return (
     <Animated.View pointerEvents="none" style={[styles.manualMorph, style]}>
       <View style={styles.manualMorphInner}>
-        <Animated.View style={headerStyle}>
-          <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
-            Manual entry
-          </Text>
-          <Text className="mt-1 text-[14px] leading-6 text-white/56">
-            Paste a live control surface URL to open a live bridge.
-          </Text>
-        </Animated.View>
-
-        <Animated.View style={[styles.manualMorphDetails, bodyStyle]}>
-          <View className="mt-4 gap-3">
-            <InputField
-              label="Label"
-              value={draft.label}
-              editable={false}
-              placeholder="Night Shift"
-            />
-            <InputField
-              label="Remote URL"
-              value={draft.remoteUrl}
-              editable={false}
-              placeholder="https://yourname.free.rzr.live/?token=..."
-            />
-            <InputField
-              label="Password hint"
-              value={draft.passwordHint}
-              editable={false}
-              placeholder="Optional — not stored server-side"
-            />
-          </View>
-          <View className="mt-4 flex-row flex-wrap gap-2">
-            {ACCENTS.map((option) => {
-              const palette = accentClasses(option);
-              return (
-                <View
-                  key={option}
-                  className={cx(
-                    'rounded-full border px-3 py-2',
-                    option === draft.accent ? palette.border : 'border-white/10',
-                    option === draft.accent ? palette.background : 'bg-white/5',
-                  )}>
-                  <Text
-                    className={cx(
-                      'text-[12px] font-semibold capitalize',
-                      option === draft.accent ? palette.text : 'text-white/56',
-                    )}>
-                    {option}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-          {error ? <Text className="mt-4 text-[13px] text-[#ff96cf]">{error}</Text> : null}
-          <View className="mt-5 flex-row gap-3">
-            <View style={[styles.morphActionPill, { width: 72 }]} />
-            <View style={[styles.morphActionPill, { width: 72 }]} />
-            <View style={[styles.morphActionPill, { flex: 1 }]} />
-          </View>
+        <Animated.View style={[headerStyle, bodyStyle]}>
+          <ManualCardContent
+            draft={draft}
+            error={error}
+            onChange={() => undefined}
+            onBack={() => undefined}
+            onSubmit={() => undefined}
+            onOpenQr={() => undefined}
+            mode="preview"
+          />
         </Animated.View>
       </View>
       <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
@@ -884,53 +804,27 @@ const styles = StyleSheet.create({
   },
   manualMorph: {
     overflow: 'hidden',
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(15, 21, 36, 0.82)',
+  },
+  manualCardFrame: {
+    position: 'absolute',
+    width: MANUAL_MODAL_W,
+    height: MANUAL_MODAL_H,
   },
   manualMorphInner: {
     flex: 1,
     paddingHorizontal: 20,
     paddingVertical: 20,
   },
-  manualMorphDetails: {
+  manualCardContent: {
     flex: 1,
-  },
-  morphActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  morphActionPill: {
-    height: 48,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    justifyContent: 'space-between',
   },
   broadcastTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(6, 10, 18, 0.10)',
-  },
-  vortexRing: {
-    position: 'absolute',
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: 'rgba(124,246,255,0.55)',
-  },
-  vortexRingA: {
-    width: 120,
-    height: 120,
-  },
-  vortexRingB: {
-    width: 190,
-    height: 190,
-    borderColor: 'rgba(139,124,255,0.35)',
-  },
-  vortexRingC: {
-    width: 250,
-    height: 250,
-    borderColor: 'rgba(255,119,217,0.28)',
-  },
-  whiteout: {
-    backgroundColor: '#ffffff',
   },
 });

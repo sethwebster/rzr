@@ -40,6 +40,7 @@ That makes it useful for:
 
 ### Requirements
 
+- `bun`
 - `node` 20+
 - `tmux`
 
@@ -60,6 +61,7 @@ npx @sethwebster/rzr run -- codex
 ```bash
 git clone https://github.com/sethwebster/rzr.git
 cd rzr
+bun install
 ./rzr run -- codex
 ```
 
@@ -71,6 +73,19 @@ http://192.168.1.20:4317/?token=...
 ```
 
 Open one on your phone.
+
+## Mobile app development
+
+For the Expo mobile app in `apps/mobile`, use the repo-local Expo CLI via Bun scripts:
+
+```bash
+bun run mobile:start
+bun run mobile:ios
+bun run mobile:ios:device
+bun run mobile:android
+```
+
+Do **not** use `npx expo@latest ...` in this workspace. In this monorepo it can fail after native build with a misleading `Failed to resolve react-native` error because the temporary npx-installed Expo CLI resolves `react-native` from the wrong context.
 
 ---
 
@@ -255,30 +270,31 @@ If you need “observe an arbitrary existing process that was **not** launched i
 
 ## Development
 
-This repo is organized as a small npm workspace monorepo. The published package lives in `packages/rzr`.
+This repo is organized as a small Bun workspace monorepo. The published package lives in `packages/rzr`.
 
 The Expo mobile companion lives in `apps/mobile`.
 
 Run the test suite:
 
 ```bash
-npm test
+bun test
 ```
 
 Start the mobile app:
 
 ```bash
-npm run mobile:start
+bun run mobile:start
 ```
 
 Useful mobile workspace commands:
 
 ```bash
-npm run mobile:ios
-npm run mobile:android
-npm run mobile:web
-npm run mobile:typecheck
-npm run mobile:lint
+bun run mobile:ios
+bun run mobile:ios:device
+bun run mobile:android
+bun run mobile:web
+bun run mobile:typecheck
+bun run mobile:lint
 ```
 
 Regenerate the README demo asset:

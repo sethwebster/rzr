@@ -1,15 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
-import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
-import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
+  Alert,
   Keyboard,
-  Platform,
   Pressable as RNPressable,
   type TextInput as RNTextInput,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { Text, TextInput, View } from '@/tw';
+import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
 import { cx } from '@/lib/utils';
 
@@ -53,7 +60,98 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
   const [sending, setSending] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<RNTextInput>(null);
+  const pullOffsetY = useSharedValue(0);
   const { sendInput, pressKey } = useTerminalApi(sessionUrl, token, auth);
+
+  const focusComposer = () => {
+    inputRef.current?.focus();
+  };
+
+  const dismissComposerKeyboard = () => {
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  };
+
+  const composerPullStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: Math.max(pullOffsetY.value, 0) }],
+  }));
+
+  const composerSurfaceStyle = useAnimatedStyle(() => {
+    const expansion = Math.max(-pullOffsetY.value, 0);
+    return {
+      paddingTop: 10 + expansion * 0.35,
+      paddingBottom: 12 + expansion * 0.12,
+      minHeight: 0,
+    };
+  });
+
+  const inputShellStyle = useAnimatedStyle(() => {
+    const expansion = Math.max(-pullOffsetY.value, 0);
+    return {
+      minHeight: 44 + expansion * 0.95,
+      paddingTop: 10 + expansion * 0.08,
+      paddingBottom: 10 + expansion * 0.08,
+    };
+  });
+
+  const gripGesture = Gesture.Pan()
+    .activeOffsetY([-4, 4])
+    .failOffsetX([-18, 18])
+    .onUpdate((event) => {
+      const next = Math.max(-120, Math.min(event.translationY, 56));
+      pullOffsetY.value = next;
+    })
+    .onEnd((event) => {
+      const shouldDismiss = event.translationY > 28 || event.velocityY > 700;
+      const shouldFocus = event.translationY < -28 || event.velocityY < -700;
+
+      if (shouldDismiss) {
+        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+        runOnJS(dismissComposerKeyboard)();
+      } else if (shouldFocus) {
+        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+        runOnJS(focusComposer)();
+      }
+
+      pullOffsetY.value = withSpring(0, { damping: 18, stiffness: 240 });
+    })
+    .onFinalize(() => {
+      pullOffsetY.value = withSpring(0, { damping: 18, stiffness: 240 });
+    });
+
+  const confirmForget = () => {
+    Alert.alert('Delete session?', 'This will remove this terminal session from your device.', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => null);
+          onForget?.();
+        },
+      },
+    ]);
+  };
+
+  const confirmClear = () => {
+    Alert.alert('Close session?', 'This will close the current terminal session.', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Close',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => null);
+          onClear?.();
+        },
+      },
+    ]);
+  };
 
   const handleSend = async () => {
     if (!text.trim()) return;
@@ -63,13 +161,7 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
     setSending(false);
   };
 
-  const supportsGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
-  const containerStyle = {
-    borderRadius: 24,
-    overflow: 'hidden' as const,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  };
+
 
   const keyPillStyle = {
     borderRadius: 999,
@@ -97,7 +189,9 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
   const inner = (
     <>
       <View className="flex-row items-center gap-2">
-        <View className="flex-1 rounded-[16px] border border-white/10 bg-black/25 px-3 py-2.5">
+        <Animated.View
+          className="flex-1 rounded-[16px] border border-white/10 bg-black/25 px-3"
+          style={inputShellStyle}>
           <TextInput
             ref={inputRef}
             value={text}
@@ -109,10 +203,12 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
             autoCapitalize="none"
             autoCorrect={false}
             className="text-[15px] text-white"
+            multiline
+            textAlignVertical="top"
             onSubmitEditing={handleSend}
             blurOnSubmit={false}
           />
-        </View>
+        </Animated.View>
         <RNPressable
           onPress={handleSend}
           disabled={sending || !text.trim()}
@@ -166,13 +262,16 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
             <Ionicons name="refresh" size={14} color="rgba(255,255,255,0.44)" />
           </TapButton>
         ) : null}
+        <TapButton onPress={() => router.push('/composer-v2')} style={actionStyle}>
+          <Text className="text-[10px] font-semibold text-white/58">V2</Text>
+        </TapButton>
         {onClear ? (
-          <TapButton onPress={onClear} style={actionStyle}>
+          <TapButton onPress={confirmClear} style={actionStyle}>
             <Ionicons name="close-circle-outline" size={14} color="rgba(255,255,255,0.44)" />
           </TapButton>
         ) : null}
         {onForget ? (
-          <TapButton onPress={onForget} style={actionStyle}>
+          <TapButton onPress={confirmForget} style={actionStyle}>
             <Ionicons name="trash-outline" size={14} color="rgba(255,255,255,0.44)" />
           </TapButton>
         ) : null}
@@ -180,20 +279,22 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
     </>
   );
 
-  if (supportsGlass) {
-    return (
-      <GlassView
-        glassEffectStyle="regular"
-        tintColor="rgba(255,255,255,0.03)"
-        style={containerStyle}>
-        <View className="px-3.5 py-3">{inner}</View>
-      </GlassView>
-    );
-  }
-
   return (
-    <BlurView intensity={60} tint="dark" style={containerStyle}>
-      <View className="px-3.5 py-3">{inner}</View>
-    </BlurView>
+    <Animated.View style={composerPullStyle}>
+      <LiquidGlassCard
+        className="rounded-[24px] border-white/10 bg-white/[0.07]"
+        tintColor="rgba(124,246,255,0.08)">
+        <Animated.View
+          className="bg-black/10 px-3.5"
+          style={composerSurfaceStyle}>
+          <GestureDetector gesture={gripGesture}>
+            <View className="mb-2 items-center py-1">
+              <View className="h-1.5 w-12 rounded-full bg-white/18" />
+            </View>
+          </GestureDetector>
+          {inner}
+        </Animated.View>
+      </LiquidGlassCard>
+    </Animated.View>
   );
 }

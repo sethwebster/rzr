@@ -1,23 +1,25 @@
 {
   "name": "rzr-monorepo",
   "private": true,
+  "packageManager": "bun@1.3.5",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "start": "npm run start --workspace @sethwebster/rzr",
-    "test": "npm run test --workspace @sethwebster/rzr",
+    "start": "cd packages/rzr && bun run start",
+    "test": "cd packages/rzr && bun run test",
     "readme:sync": "node ./scripts/sync-package-readme.mjs",
     "version:patch": "npm version patch --workspace @sethwebster/rzr",
-    "mobile:start": "npm run start --workspace @sethwebster/rzr-mobile",
-    "mobile:ios": "npm run ios --workspace @sethwebster/rzr-mobile",
-    "mobile:android": "npm run android --workspace @sethwebster/rzr-mobile",
-    "mobile:web": "npm run web --workspace @sethwebster/rzr-mobile",
-    "mobile:lint": "npm run lint --workspace @sethwebster/rzr-mobile",
-    "mobile:typecheck": "npm run typecheck --workspace @sethwebster/rzr-mobile"
+    "mobile:start": "cd apps/mobile && bun run start",
+    "mobile:ios": "cd apps/mobile && bun run ios",
+    "mobile:ios:device": "cd apps/mobile && bun run ios:device",
+    "mobile:android": "cd apps/mobile && bun run android",
+    "mobile:web": "cd apps/mobile && bun run web",
+    "mobile:lint": "cd apps/mobile && bun run lint",
+    "mobile:typecheck": "cd apps/mobile && bun run typecheck"
   },
   "overrides": {
-    "lightningcss": "1.30.1"
+    "lightningcss": "1.32.0"
   }
 }

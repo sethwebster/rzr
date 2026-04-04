@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withTiming,
+  Easing,
 } from 'react-native-reanimated';
 
 import { type MaterializedKeyFrame } from '@/lib/typing-script';
@@ -65,60 +65,4 @@ export function useCursorBlink() {
   }, [cursorOpacity]);
 
   return useAnimatedStyle(() => ({ opacity: cursorOpacity.value }));
-}
-
-export function useVortexAnimation() {
-  const spin = useSharedValue(0);
-  const suck = useSharedValue(0);
-
-  useEffect(() => {
-    spin.value = withRepeat(
-      withTiming(1, { duration: 900, easing: Easing.linear }),
-      -1,
-      false,
-    );
-    suck.value = withTiming(1, { duration: 650, easing: Easing.in(Easing.cubic) });
-  }, [spin, suck]);
-
-  const ringA = useAnimatedStyle(() => ({
-    transform: [
-      { rotate: `${(spin.value * 360) / 1.2}deg` },
-      { scale: 1 - suck.value * 0.72 },
-    ],
-    opacity: 0.8 - suck.value * 0.55,
-  }));
-
-  const ringB = useAnimatedStyle(() => ({
-    transform: [
-      { rotate: `${(spin.value * -360) / 1.8}deg` },
-      { scale: 1 - suck.value * 0.72 },
-    ],
-    opacity: 0.8 - suck.value * 0.55,
-  }));
-
-  const ringC = useAnimatedStyle(() => ({
-    transform: [
-      { rotate: `${(spin.value * 360) / 2.6}deg` },
-      { scale: 1 - suck.value * 0.72 },
-    ],
-    opacity: 0.8 - suck.value * 0.55,
-  }));
-
-  const textStyle = useAnimatedStyle(() => ({
-    opacity: 1 - suck.value,
-    transform: [{ scale: 1 - suck.value * 0.85 }, { translateY: -suck.value * 24 }],
-  }));
-
-  return { ringA, ringB, ringC, textStyle };
-}
-
-export function useWhiteoutFlash(phaseStartedAt: number) {
-  const white = useSharedValue(0);
-
-  useEffect(() => {
-    white.value = 0;
-    white.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) });
-  }, [phaseStartedAt, white]);
-
-  return useAnimatedStyle(() => ({ opacity: white.value }));
 }

@@ -1,5 +1,11 @@
 .omx/
 .playwright-mcp/
+.expo/
+.claude/
+dist/
+apps/mobile/dist/
+apps/web/
 node_modules/
+package-lock.json
 npm-debug.log*
 *.tgz

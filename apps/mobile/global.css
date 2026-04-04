@@ -1,3 +1,10 @@
+@source "./app/**/*.{ts,tsx}";
+@source "./components/**/*.{ts,tsx}";
+@source "./hooks/**/*.{ts,tsx}";
+@source "./lib/**/*.{ts,tsx}";
+@source "./tw/**/*.{ts,tsx}";
+@source "./providers/**/*.{ts,tsx}";
+
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css";
