@@ -262,7 +262,11 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
             <Ionicons name="refresh" size={14} color="rgba(255,255,255,0.44)" />
           </TapButton>
         ) : null}
-        <TapButton onPress={() => router.push('/composer-v2')} style={actionStyle}>
+        <TapButton
+          onPress={() =>
+            router.push({ pathname: '/composer-v2', params: { sessionUrl, token, auth } })
+          }
+          style={actionStyle}>
           <Text className="text-[10px] font-semibold text-white/58">V2</Text>
         </TapButton>
         {onClear ? (

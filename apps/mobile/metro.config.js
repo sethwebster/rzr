@@ -1,7 +1,6 @@
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 const { withNativewind } = require('nativewind/metro');
-const { exclusionList } = require('metro-config');
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '../..');
@@ -12,7 +11,7 @@ function escapeRegExp(value) {
 
 const config = getDefaultConfig(projectRoot);
 
-config.resolver.blockList = exclusionList([
+const extraBlockList = [
   // Block bun workspace symlinks that alias back into watched dirs
   new RegExp(`${escapeRegExp(path.join(monorepoRoot, 'node_modules', '@sethwebster', 'rzr-mobile'))}\\/.*`),
   new RegExp(`${escapeRegExp(path.join(monorepoRoot, 'node_modules', '@sethwebster', 'rzr'))}\\/.*`),
@@ -21,7 +20,12 @@ config.resolver.blockList = exclusionList([
   new RegExp(`${escapeRegExp(path.join(projectRoot, 'ios'))}\\/.*`),
   new RegExp(`${escapeRegExp(path.join(projectRoot, 'android'))}\\/.*`),
   new RegExp(`${escapeRegExp(path.join(projectRoot, 'dist'))}\\/.*`),
-]);
+];
+
+config.resolver.blockList = [
+  ...(Array.isArray(config.resolver.blockList) ? config.resolver.blockList : config.resolver.blockList ? [config.resolver.blockList] : []),
+  ...extraBlockList,
+];
 
 module.exports = withNativewind(config, {
   input: './global.css',

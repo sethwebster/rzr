@@ -50,7 +50,7 @@ export default function RootLayout() {
                   sheetAllowedDetents: [0.6, 0.92],
                   sheetInitialDetentIndex: 0,
                   sheetGrabberVisible: true,
-                  sheetCornerRadius: 28,
+                  sheetCornerRadius: 28,                  
                 }}
               />
               <Stack.Screen
@@ -66,12 +66,9 @@ export default function RootLayout() {
               <Stack.Screen
                 name="composer-v2"
                 options={{
-                  presentation: 'formSheet',
+                  presentation: 'transparentModal',
+                  animation: 'none',
                   contentStyle: { backgroundColor: 'transparent' },
-                  sheetAllowedDetents: [0.45, 0.92],
-                  sheetInitialDetentIndex: 0,
-                  sheetGrabberVisible: true,
-                  sheetCornerRadius: 28,
                 }}
               />
               <Stack.Screen

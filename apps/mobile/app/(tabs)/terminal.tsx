@@ -17,10 +17,11 @@ import { ActivityIndicator, Pressable, Text, View, SafeAreaView } from '@/tw';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
 import { GlassSafeAreaView } from '@/components/glass-safe-area-view';
+import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { PremiumBackdrop } from '@/components/premium-backdrop';
 import { RadialMenu, type RadialMenuHandle } from '@/components/radial-menu';
 import { SignalChip } from '@/components/signal-chip';
-import { TerminalComposer } from '@/components/terminal-composer';
+import { ComposerV2 } from '@/components/composer-v2';
 import { useHideTabBar } from '@/hooks/use-hide-tab-bar';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
@@ -52,8 +53,8 @@ function isChromelessView(urlValue: string) {
 }
 
 export default function TerminalScreen() {
-  const { activeSession, clearActiveSession, removeSession } = useSession();
-  const [webKey, setWebKey] = useState(0);
+  const { activeSession, clearActiveSession } = useSession();
+  const [webKey] = useState(0);
   const keyboardVisible = useKeyboardVisible();
   const radialMenuRef = useRef<RadialMenuHandle>(null);
   const insets = useSafeAreaInsets();
@@ -447,11 +448,6 @@ export default function TerminalScreen() {
             rightSlot={
               <View className="flex-row items-center gap-2">
                 <Pressable
-                  onPress={() => router.push('/composer-v2')}
-                  className="rounded-full border border-white/10 bg-white/6 px-2.5 py-1">
-                  <Text className="text-[10px] font-semibold text-white/58">V2</Text>
-                </Pressable>
-                <Pressable
                   onPress={() => Linking.openURL(activeSession.url).catch(() => null)}
                   className="flex-row items-center gap-1.5 rounded-full border border-white/10 bg-white/6 px-2.5 py-1">
                   <View
@@ -470,16 +466,26 @@ export default function TerminalScreen() {
       </GestureDetector>
 
       <Animated.View
-        style={[{ position: 'absolute', bottom: 0, left: 0, right: 0 }, composerAnimStyle]}>
-        <TerminalComposer
-          sessionUrl={activeSession.url}
-          onReload={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => null);
-            setWebKey((c) => c + 1);
-          }}
-          onClear={clearActiveSession}
-          onForget={() => removeSession(activeSession.id)}
-        />
+        style={[
+          { position: 'absolute', bottom: 0, left: 0, right: 0, height: composerHeight },
+          composerAnimStyle,
+        ]}>
+        <LiquidGlassCard
+          className="mx-0 h-full rounded-t-[28px] rounded-b-none bg-transparent"
+          tintColor="rgba(255,255,255,0.03)"
+          style={{ borderWidth: 0 }}>
+          <View
+            className="flex-1 overflow-hidden rounded-t-[28px] rounded-b-none"
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <View className="items-center pb-2 pt-3">
+              <View className="h-1.5 w-12 rounded-full bg-white/20" />
+            </View>
+
+            <View className="flex-1" style={{ paddingBottom: insets.bottom }}>
+              <ComposerV2 sessionUrl={activeSession.url} />
+            </View>
+          </View>
+        </LiquidGlassCard>
       </Animated.View>
     </View>
   );

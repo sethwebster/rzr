@@ -1,4 +1,7 @@
-import { View } from '@/tw';
+import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
+import { Pressable, TextInput, View } from '@/tw';
+import { useTerminalApi } from '@/hooks/use-terminal-api';
 
 type ComposerV2Props = {
   sessionUrl?: string;
@@ -9,6 +12,53 @@ type ComposerV2Props = {
   onForget?: () => void;
 };
 
-export function ComposerV2(_props: ComposerV2Props) {
-  return <View className="flex-1 bg-transparent" />;
+export function ComposerV2({ sessionUrl, token, auth }: ComposerV2Props) {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const { sendInput } = useTerminalApi(sessionUrl ?? '', token, auth);
+
+  const handleSend = async () => {
+    if (!sessionUrl || !text.trim() || sending) return;
+    setSending(true);
+    const ok = await sendInput(text, true);
+    if (ok) setText('');
+    setSending(false);
+  };
+
+  const disabled = !sessionUrl || !text.trim() || sending;
+
+  return (
+    <View className="flex-1 flex-row items-stretch bg-transparent">
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        placeholder="Type…"
+        placeholderTextColor="rgba(255,255,255,0.32)"
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoFocus
+        multiline
+        textAlignVertical="top"
+        blurOnSubmit={false}
+        onSubmitEditing={handleSend}
+        className="flex-1 text-[17px] text-white"
+        style={{
+          flex: 1,
+          paddingHorizontal: 16,
+          paddingVertical: 16,
+          backgroundColor: 'transparent',
+        }}
+      />
+
+      <Pressable
+        onPress={handleSend}
+        disabled={disabled}
+        className="w-14 items-center justify-center bg-[#7cf6ff]"
+        style={({ pressed }) => ({
+          opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
+        })}>
+        <Ionicons name="arrow-up" size={18} color="#031017" />
+      </Pressable>
+    </View>
+  );
 }
