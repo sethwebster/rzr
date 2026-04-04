@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Keyboard, StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useAnimatedKeyboard,
   useSharedValue,
@@ -102,6 +103,8 @@ export default function TerminalScreen() {
   const [composerDetentIndex, setComposerDetentIndex] = useState(0);
   const keyboardVisible = useKeyboardVisible();
   const radialMenuRef = useRef<RadialMenuHandle>(null);
+  const webViewRef = useRef<WebView>(null);
+  const composerInsetRef = useRef(0);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { pressKey } = useTerminalApi(activeSession?.url ?? '');
@@ -137,6 +140,16 @@ export default function TerminalScreen() {
   const updateComposerDetentIndex = (height: number) => {
     const nextIndex = COMPOSER_DETENTS.findIndex((point) => point === height);
     setComposerDetentIndex(nextIndex >= 0 ? nextIndex : 0);
+  };
+
+  const syncComposerInset = (height: number) => {
+    const rounded = Math.max(0, Math.round(height));
+    if (Math.abs(rounded - composerInsetRef.current) < 2) return;
+    composerInsetRef.current = rounded;
+    webViewRef.current?.injectJavaScript(`
+      window.__rzrSetComposerInset?.(${rounded});
+      true;
+    `);
   };
 
   const dismissKeyboard = () => {
@@ -175,13 +188,30 @@ export default function TerminalScreen() {
       const max = COMPOSER_DETENTS[COMPOSER_DETENTS.length - 1];
       const next = Math.max(min, Math.min(max, composerDragStartHeight.value - event.translationY));
       composerSheetHeight.value = next;
+      runOnJS(syncComposerInset)(next);
     })
     .onEnd((event) => {
       const projected = composerSheetHeight.value + -event.velocityY * 0.08;
       const next = snapToDetent(projected, event.velocityY, COMPOSER_DETENTS);
       runOnJS(updateComposerDetentIndex)(next);
+      runOnJS(syncComposerInset)(next);
       composerSheetHeight.value = withTiming(next, { duration: 180 });
     });
+
+  useAnimatedReaction(
+    () => composerSheetHeight.value,
+    (height, previous) => {
+      if (previous == null || Math.abs(height - previous) >= 2) {
+        runOnJS(syncComposerInset)(height);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    composerInsetRef.current = 0;
+    syncComposerInset(COMPOSER_DETENTS[0]);
+  }, [activeSession?.id]);
 
   if (!activeSession) {
     return (
@@ -205,7 +235,7 @@ export default function TerminalScreen() {
 
   const palette = accentClasses(activeSession.accent);
   const headerHeight = insets.top + 80;
-  const composerReservedHeight = COMPOSER_DETENTS[COMPOSER_DETENTS.length - 1];
+  const composerReservedHeight = COMPOSER_DETENTS[0];
   const chromelessView = isChromelessView(activeSession.url);
   const webviewUrl =
     activeSession.url + (activeSession.url.includes('?') ? '&' : '?') + 'chrome=0';
@@ -232,7 +262,7 @@ export default function TerminalScreen() {
     }
     .screen{
       padding-top:${headerHeight}px!important;
-      padding-bottom:${composerReservedHeight}px!important;
+      padding-bottom:var(--rzr-composer-inset, ${composerReservedHeight}px)!important;
       width:100%!important;
       max-width:100%!important;
       overflow-x:hidden!important;
@@ -260,6 +290,12 @@ export default function TerminalScreen() {
           document.body.style.overflowX='hidden';
         }
       };
+
+      window.__rzrSetComposerInset=function(px){
+        var value=Math.max(0, Math.round(px || 0)) + 'px';
+        document.documentElement.style.setProperty('--rzr-composer-inset', value);
+      };
+      window.__rzrSetComposerInset(${composerReservedHeight});
 
       var touchStartX=0;
       var touchStartY=0;
@@ -430,6 +466,11 @@ export default function TerminalScreen() {
       var s=document.createElement('style');
       s.textContent=${JSON.stringify(injectedCSS)};
       document.head.appendChild(s);
+      window.__rzrSetComposerInset=function(px){
+        var value=Math.max(0, Math.round(px || 0)) + 'px';
+        document.documentElement.style.setProperty('--rzr-composer-inset', value);
+      };
+      window.__rzrSetComposerInset(${composerReservedHeight});
       document.documentElement.style.overflowX='hidden';
       if(document.body){
         document.body.style.overflowX='hidden';
@@ -484,6 +525,7 @@ export default function TerminalScreen() {
 
   const terminalViewport = (
     <WebView
+      ref={webViewRef}
       key={terminalInstanceKey}
       source={{ uri: webviewUrl }}
       startInLoadingState
@@ -495,6 +537,7 @@ export default function TerminalScreen() {
       keyboardDismissMode="on-drag"
       injectedJavaScriptBeforeContentLoaded={injectedBeforeLoad}
       injectedJavaScript={injectedAfterLoad}
+      onLoadEnd={() => syncComposerInset(composerInsetRef.current || COMPOSER_DETENTS[0])}
       onMessage={handleWebMessage}
       renderLoading={() => (
         <View style={styles.loadingWrap}>
