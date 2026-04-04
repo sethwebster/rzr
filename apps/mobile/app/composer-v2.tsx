@@ -91,8 +91,12 @@ export default function ComposerV2Screen() {
     };
   }, [insets.bottom, keyboardOffset, viewportHeight]);
 
-  const dismiss = () => {
+  const dismissKeyboard = () => {
     Keyboard.dismiss();
+  };
+
+  const dismiss = () => {
+    dismissKeyboard();
     progress.value = withTiming(0, { duration: 180 }, (finished) => {
       if (finished) runOnJS(router.back)();
     });
@@ -103,7 +107,7 @@ export default function ComposerV2Screen() {
       dragStartHeight.value = sheetHeight.value;
       if (keyboardOffset.value > 0) {
         keyboardOffset.value = withTiming(0, { duration: 120 });
-        runOnJS(Keyboard.dismiss)();
+        runOnJS(dismissKeyboard)();
       }
     })
     .onUpdate((event) => {
@@ -140,11 +144,11 @@ export default function ComposerV2Screen() {
 
       <Animated.View style={sheetStyle}>
         <LiquidGlassCard
-          className="flex-1 rounded-t-[28px] rounded-b-none bg-transparent"
+          className="flex-1 rounded-t-[20px] rounded-b-none bg-transparent"
           tintColor="rgba(255,255,255,0.03)"
           style={{ borderWidth: 0 }}>
           <View
-            className="flex-1 overflow-hidden rounded-t-[28px] rounded-b-none"
+            className="flex-1 overflow-hidden rounded-t-[20px] rounded-b-none"
             style={{ backgroundColor: INNER_TINT }}>
             <GestureDetector gesture={panGesture}>
               <View className="items-center pb-2 pt-3">

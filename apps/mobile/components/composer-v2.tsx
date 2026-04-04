@@ -50,15 +50,17 @@ export function ComposerV2({ sessionUrl, token, auth }: ComposerV2Props) {
         }}
       />
 
-      <Pressable
-        onPress={handleSend}
-        disabled={disabled}
-        className="w-14 items-center justify-center bg-[#7cf6ff]"
-        style={({ pressed }) => ({
-          opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
-        })}>
-        <Ionicons name="arrow-up" size={18} color="#031017" />
-      </Pressable>
+      <View className="w-14 bg-[#7cf6ff]">
+        <Pressable
+          onPress={handleSend}
+          disabled={disabled}
+          className="flex-1 items-center justify-center bg-transparent"
+          style={({ pressed }) => ({
+            opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
+          })}>
+          <Ionicons name="arrow-up" size={18} color="#031017" />
+        </Pressable>
+      </View>
     </View>
   );
 }

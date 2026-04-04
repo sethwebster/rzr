@@ -12,6 +12,7 @@ import Animated, {
   useAnimatedKeyboard,
   useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { ActivityIndicator, Pressable, Text, View, SafeAreaView } from '@/tw';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
@@ -27,6 +28,49 @@ import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
 import { accentClasses, createSessionId } from '@/lib/utils';
 import { useSession } from '@/providers/session-provider';
+
+const COMPOSER_DETENTS = [120, 240, 420] as const;
+
+function snapToNearest(value: number, points: readonly number[]) {
+  'worklet';
+
+  let nearest = points[0] ?? value;
+  let minDistance = Math.abs(value - nearest);
+
+  for (const point of points) {
+    const distance = Math.abs(value - point);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearest = point;
+    }
+  }
+
+  return nearest;
+}
+
+function snapToDetent(value: number, velocityY: number, points: readonly number[]) {
+  'worklet';
+
+  if (!points.length) return value;
+
+  if (Math.abs(velocityY) < 900) {
+    return snapToNearest(value, points);
+  }
+
+  if (velocityY < 0) {
+    for (const point of points) {
+      if (point > value + 8) return point;
+    }
+    return points[points.length - 1] ?? value;
+  }
+
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const point = points[i];
+    if (point != null && point < value - 8) return point;
+  }
+
+  return points[0] ?? value;
+}
 
 function isChromelessView(urlValue: string) {
   try {
@@ -61,11 +105,14 @@ export default function TerminalScreen() {
   const router = useRouter();
   const { pressKey } = useTerminalApi(activeSession?.url ?? '');
   const headerPullY = useSharedValue(0);
+  const composerSheetHeight = useSharedValue(COMPOSER_DETENTS[1]);
+  const composerDragStartHeight = useSharedValue(COMPOSER_DETENTS[1]);
 
   useHideTabBar(!!activeSession);
 
   const keyboard = useAnimatedKeyboard();
   const composerAnimStyle = useAnimatedStyle(() => ({
+    height: composerSheetHeight.value,
     transform: [{ translateY: -keyboard.height.value }],
   }));
   const headerAnimStyle = useAnimatedStyle(() => ({
@@ -75,6 +122,10 @@ export default function TerminalScreen() {
   const dismissToHome = () => {
     clearActiveSession();
     router.replace('/');
+  };
+
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
   };
 
   const headerDismissGesture = Gesture.Pan()
@@ -93,6 +144,27 @@ export default function TerminalScreen() {
     })
     .onFinalize(() => {
       headerPullY.value = withSpring(0, { damping: 18, stiffness: 220 });
+    });
+
+  const composerSheetGesture = Gesture.Pan()
+    .activeOffsetY([-4, 4])
+    .failOffsetX([-24, 24])
+    .onBegin(() => {
+      composerDragStartHeight.value = composerSheetHeight.value;
+      if (keyboard.height.value > 0) {
+        runOnJS(dismissKeyboard)();
+      }
+    })
+    .onUpdate((event) => {
+      const min = COMPOSER_DETENTS[0];
+      const max = COMPOSER_DETENTS[COMPOSER_DETENTS.length - 1];
+      const next = Math.max(min, Math.min(max, composerDragStartHeight.value - event.translationY));
+      composerSheetHeight.value = next;
+    })
+    .onEnd((event) => {
+      const projected = composerSheetHeight.value + -event.velocityY * 0.08;
+      const next = snapToDetent(projected, event.velocityY, COMPOSER_DETENTS);
+      composerSheetHeight.value = withTiming(next, { duration: 180 });
     });
 
   if (!activeSession) {
@@ -117,7 +189,7 @@ export default function TerminalScreen() {
 
   const palette = accentClasses(activeSession.accent);
   const headerHeight = insets.top + 80;
-  const composerHeight = 240;
+  const composerReservedHeight = COMPOSER_DETENTS[COMPOSER_DETENTS.length - 1];
   const chromelessView = isChromelessView(activeSession.url);
   const webviewUrl =
     activeSession.url + (activeSession.url.includes('?') ? '&' : '?') + 'chrome=0';
@@ -144,7 +216,7 @@ export default function TerminalScreen() {
     }
     .screen{
       padding-top:${headerHeight}px!important;
-      padding-bottom:${composerHeight}px!important;
+      padding-bottom:${composerReservedHeight}px!important;
       width:100%!important;
       max-width:100%!important;
       overflow-x:hidden!important;
@@ -466,20 +538,19 @@ export default function TerminalScreen() {
       </GestureDetector>
 
       <Animated.View
-        style={[
-          { position: 'absolute', bottom: 0, left: 0, right: 0, height: composerHeight },
-          composerAnimStyle,
-        ]}>
+        style={[{ position: 'absolute', bottom: 0, left: 0, right: 0 }, composerAnimStyle]}>
         <LiquidGlassCard
-          className="mx-0 h-full rounded-t-[28px] rounded-b-none bg-transparent"
+          className="mx-0 h-full rounded-t-[20px] rounded-b-none bg-transparent"
           tintColor="rgba(255,255,255,0.03)"
           style={{ borderWidth: 0 }}>
           <View
-            className="flex-1 overflow-hidden rounded-t-[28px] rounded-b-none"
+            className="flex-1 overflow-hidden rounded-t-[20px] rounded-b-none"
             style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <View className="items-center pb-2 pt-3">
-              <View className="h-1.5 w-12 rounded-full bg-white/20" />
-            </View>
+            <GestureDetector gesture={composerSheetGesture}>
+              <View className="items-center pb-2 pt-3">
+                <View className="h-1.5 w-12 rounded-full bg-white/20" />
+              </View>
+            </GestureDetector>
 
             <View className="flex-1" style={{ paddingBottom: insets.bottom }}>
               <ComposerV2 sessionUrl={activeSession.url} />
