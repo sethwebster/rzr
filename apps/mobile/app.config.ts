@@ -5,13 +5,14 @@ const config: ExpoConfig = {
   slug: 'rzr-mobile',
   version: '0.1.0',
   orientation: 'portrait',
-  icon: './assets/images/icon.png',
+  icon: './assets/images/app-icon.png',
+  backgroundColor: '#000000',
   scheme: 'rzrmobile',
   userInterfaceStyle: 'dark',
   splash: {
-    image: './assets/images/splash-icon.png',
+    image: './assets/images/app-icon.png',
     resizeMode: 'contain',
-    backgroundColor: '#050816',
+    backgroundColor: '#000000',
   },
   updates: {
     enabled: true,
@@ -23,6 +24,7 @@ const config: ExpoConfig = {
   },
   ios: {
     supportsTablet: false,
+    backgroundColor: '#000000',
     bundleIdentifier: 'com.sethwebster.rzrmobile',
     associatedDomains: ['applinks:*.rzr.live'],
     infoPlist: {
@@ -37,11 +39,11 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.sethwebster.rzrmobile',
+    backgroundColor: '#000000',
     adaptiveIcon: {
-      backgroundColor: '#050816',
-      foregroundImage: './assets/images/android-icon-foreground.png',
-      backgroundImage: './assets/images/android-icon-background.png',
-      monochromeImage: './assets/images/android-icon-monochrome.png',
+      backgroundColor: '#000000',
+      foregroundImage: './assets/images/app-icon.png',
+      monochromeImage: './assets/images/app-icon.png',
     },
     permissions: ['POST_NOTIFICATIONS', 'CAMERA'],
     intentFilters: [
@@ -56,7 +58,7 @@ const config: ExpoConfig = {
   web: {
     bundler: 'metro',
     output: 'static',
-    favicon: './assets/images/favicon.png',
+    favicon: './assets/images/app-icon.png',
   },
   plugins: [
     'expo-router',
@@ -70,17 +72,17 @@ const config: ExpoConfig = {
     [
       'expo-notifications',
       {
-        icon: './assets/images/android-icon-monochrome.png',
+        icon: './assets/images/app-icon.png',
         color: '#7CF6FF',
       },
     ],
     [
       'expo-splash-screen',
       {
-        image: './assets/images/splash-icon.png',
+        image: './assets/images/app-icon.png',
         imageWidth: 180,
         resizeMode: 'contain',
-        backgroundColor: '#050816',
+        backgroundColor: '#000000',
       },
     ],
   ],
