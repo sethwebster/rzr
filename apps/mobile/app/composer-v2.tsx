@@ -15,7 +15,6 @@ import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { View } from '@/tw';
 
 const DETENTS = [0.15, 0.45, 0.92] as const;
-const INNER_TINT = 'rgba(0,0,0,0.5)';
 
 function snapToNearest(value: number, points: number[]) {
   'worklet';
@@ -149,7 +148,7 @@ export default function ComposerV2Screen() {
           style={{ borderWidth: 0 }}>
           <View
             className="flex-1 overflow-hidden rounded-t-[20px] rounded-b-none"
-            style={{ backgroundColor: INNER_TINT }}>
+            style={{ backgroundColor: "transparent" }}>
             <GestureDetector gesture={panGesture}>
               <View className="items-center pb-2 pt-3">
                 <View className="h-1.5 w-12 rounded-full bg-white/20" />

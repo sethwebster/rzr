@@ -97,16 +97,16 @@ function isChromelessView(urlValue: string) {
 }
 
 export default function TerminalScreen() {
-  const { activeSession, clearActiveSession } = useSession();
-  const [webKey] = useState(0);
+  const { activeSession, clearActiveSession, removeSession } = useSession();
+  const [webKey, setWebKey] = useState(0);
   const keyboardVisible = useKeyboardVisible();
   const radialMenuRef = useRef<RadialMenuHandle>(null);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { pressKey } = useTerminalApi(activeSession?.url ?? '');
   const headerPullY = useSharedValue(0);
-  const composerSheetHeight = useSharedValue(COMPOSER_DETENTS[1]);
-  const composerDragStartHeight = useSharedValue(COMPOSER_DETENTS[1]);
+  const composerSheetHeight = useSharedValue<number>(COMPOSER_DETENTS[1]);
+  const composerDragStartHeight = useSharedValue<number>(COMPOSER_DETENTS[1]);
 
   useHideTabBar(!!activeSession);
 
@@ -122,6 +122,15 @@ export default function TerminalScreen() {
   const dismissToHome = () => {
     clearActiveSession();
     router.replace('/');
+  };
+
+  const reloadTerminal = () => {
+    setWebKey((current) => current + 1);
+  };
+
+  const forgetSession = () => {
+    if (!activeSession) return;
+    removeSession(activeSession.id);
   };
 
   const dismissKeyboard = () => {
@@ -545,7 +554,7 @@ export default function TerminalScreen() {
           style={{ borderWidth: 0 }}>
           <View
             className="flex-1 overflow-hidden rounded-t-[20px] rounded-b-none"
-            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            style={{ backgroundColor: "transparent" }}>
             <GestureDetector gesture={composerSheetGesture}>
               <View className="items-center pb-2 pt-3">
                 <View className="h-1.5 w-12 rounded-full bg-white/20" />
@@ -553,7 +562,12 @@ export default function TerminalScreen() {
             </GestureDetector>
 
             <View className="flex-1" style={{ paddingBottom: insets.bottom }}>
-              <ComposerV2 sessionUrl={activeSession.url} />
+              <ComposerV2
+                sessionUrl={activeSession.url}
+                onReload={reloadTerminal}
+                onClear={dismissToHome}
+                onForget={forgetSession}
+              />
             </View>
           </View>
         </LiquidGlassCard>
