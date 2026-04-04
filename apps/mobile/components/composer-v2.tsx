@@ -18,6 +18,7 @@ type ComposerV2Props = {
   onReload?: () => void;
   onClear?: () => void;
   onForget?: () => void;
+  compactControls?: boolean;
 };
 
 const QUICK_KEYS: { label: string; key: string; danger?: boolean }[] = [
@@ -25,8 +26,6 @@ const QUICK_KEYS: { label: string; key: string; danger?: boolean }[] = [
   { label: 'Esc', key: 'Escape' },
   { label: '\u2191', key: 'Up' },
   { label: '\u2193', key: 'Down' },
-  { label: 'C-c', key: 'C-c', danger: true },
-  { label: 'C-d', key: 'C-d' },
 ];
 
 function TapButton({ onPress, children, style }: {
@@ -53,6 +52,7 @@ export function ComposerV2({
   onReload,
   onClear,
   onForget,
+  compactControls = false,
 }: ComposerV2Props) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -158,7 +158,9 @@ export function ComposerV2({
         </View>
       </View>
 
-      <View className="flex-row items-center gap-1.5 px-3 py-2.5">
+      <View
+        className="flex-row items-center gap-1.5 py-2.5"
+        style={{ paddingHorizontal: compactControls ? 14 : 12 }}>
         {QUICK_KEYS.map(({ label, key, danger }) => (
           <TapButton
             key={key}

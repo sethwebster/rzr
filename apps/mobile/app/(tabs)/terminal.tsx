@@ -29,7 +29,7 @@ import { useTerminalApi } from '@/hooks/use-terminal-api';
 import { accentClasses, createSessionId } from '@/lib/utils';
 import { useSession } from '@/providers/session-provider';
 
-const COMPOSER_DETENTS = [120, 240, 420] as const;
+const COMPOSER_DETENTS = [142, 240, 420] as const;
 
 function snapToNearest(value: number, points: readonly number[]) {
   'worklet';
@@ -99,14 +99,15 @@ function isChromelessView(urlValue: string) {
 export default function TerminalScreen() {
   const { activeSession, clearActiveSession, removeSession } = useSession();
   const [webKey, setWebKey] = useState(0);
+  const [composerDetentIndex, setComposerDetentIndex] = useState(0);
   const keyboardVisible = useKeyboardVisible();
   const radialMenuRef = useRef<RadialMenuHandle>(null);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { pressKey } = useTerminalApi(activeSession?.url ?? '');
   const headerPullY = useSharedValue(0);
-  const composerSheetHeight = useSharedValue<number>(COMPOSER_DETENTS[1]);
-  const composerDragStartHeight = useSharedValue<number>(COMPOSER_DETENTS[1]);
+  const composerSheetHeight = useSharedValue<number>(COMPOSER_DETENTS[0]);
+  const composerDragStartHeight = useSharedValue<number>(COMPOSER_DETENTS[0]);
 
   useHideTabBar(!!activeSession);
 
@@ -131,6 +132,11 @@ export default function TerminalScreen() {
   const forgetSession = () => {
     if (!activeSession) return;
     removeSession(activeSession.id);
+  };
+
+  const updateComposerDetentIndex = (height: number) => {
+    const nextIndex = COMPOSER_DETENTS.findIndex((point) => point === height);
+    setComposerDetentIndex(nextIndex >= 0 ? nextIndex : 0);
   };
 
   const dismissKeyboard = () => {
@@ -173,6 +179,7 @@ export default function TerminalScreen() {
     .onEnd((event) => {
       const projected = composerSheetHeight.value + -event.velocityY * 0.08;
       const next = snapToDetent(projected, event.velocityY, COMPOSER_DETENTS);
+      runOnJS(updateComposerDetentIndex)(next);
       composerSheetHeight.value = withTiming(next, { duration: 180 });
     });
 
@@ -567,6 +574,7 @@ export default function TerminalScreen() {
                 onReload={reloadTerminal}
                 onClear={dismissToHome}
                 onForget={forgetSession}
+                compactControls={composerDetentIndex === 0}
               />
             </View>
           </View>
