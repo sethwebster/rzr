@@ -575,6 +575,7 @@ function createDashboardPrinter({
   const yellow = "\x1b[33m";
   const red = "\x1b[31m";
   const gray = "\x1b[90m";
+  const inverse = "\x1b[7m";
 
   const state = {
     tunnelStatus: tunnelEnabled ? "connecting" : "local",
@@ -585,6 +586,10 @@ function createDashboardPrinter({
     suspended: false,
     screenMode: "status",
     entryHealth: Object.create(null),
+    connectedClients: 0,
+    requestCount: 0,
+    lastActivityAt: 0,
+    lastActivityLabel: "waiting for traffic",
   };
   const stdin = process.stdin;
   const restoreRawMode = process.stdin.isTTY && typeof stdin.setRawMode === "function";
@@ -694,6 +699,61 @@ function createDashboardPrinter({
     render();
   }
 
+  function toggleHelpScreen() {
+    state.screenMode = state.screenMode === "help" ? "status" : "help";
+    render();
+  }
+
+  function formatRelativeDuration(timestamp) {
+    if (!timestamp) {
+      return "idle";
+    }
+
+    const deltaMs = Math.max(0, Date.now() - timestamp);
+    const seconds = Math.floor(deltaMs / 1000);
+    if (seconds < 5) {
+      return "just now";
+    }
+    if (seconds < 60) {
+      return `${seconds}s ago`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  }
+
+  function currentHealthSummary() {
+    const { connectEntries } = advertisedEntries();
+    const total = connectEntries.length;
+    const passing = connectEntries.filter((entry) => state.entryHealth[entry]).length;
+    return total === 0 ? "0/0 healthy" : `${passing}/${total} healthy`;
+  }
+
+  function footerText(width) {
+    const sections = state.screenMode === "status"
+      ? [
+          `${bold}q${reset} tunnel QR`,
+          `${bold}?${reset} shortcuts`,
+          `${bold}Ctrl+C${reset} exit menu`,
+        ]
+      : state.screenMode === "qr"
+        ? [
+            `${bold}q${reset} back to status`,
+            `${bold}?${reset} shortcuts`,
+            `${bold}Esc${reset} return`,
+          ]
+        : [
+            `${bold}?${reset} close shortcuts`,
+            `${bold}q${reset} tunnel QR`,
+            `${bold}Esc${reset} return`,
+          ];
+
+    return `${inverse}${padAnsiRight(` ${sections.join("  ·  ")} `, width)}${reset}`;
+  }
+
   function onData(chunk) {
     const key = chunk.toString("utf8");
 
@@ -702,12 +762,17 @@ function createDashboardPrinter({
       return;
     }
 
+    if (key === "?") {
+      toggleHelpScreen();
+      return;
+    }
+
     if (key === "q" || key === "Q") {
       toggleQrScreen();
       return;
     }
 
-    if (state.screenMode === "qr" && (key === "\u001b" || key === "\r" || key === "\n")) {
+    if (state.screenMode !== "status" && (key === "\u001b" || key === "\r" || key === "\n")) {
       state.screenMode = "status";
       render();
     }
@@ -795,7 +860,44 @@ function createDashboardPrinter({
           centerAnsi(`${dim}Press q, Esc, or Enter to return.${reset}`, innerWidth),
         ];
       }
+    } else if (state.screenMode === "help") {
+      headerLines = [
+        `${bold}${cyan}rzr remote${reset}  ${dim}shortcut keys${reset}`,
+        "",
+        `${bold}Session${reset}   ${target}`,
+        `${bold}Tunnel${reset}    ${tunnelLine}`,
+        "",
+      ];
+
+      contentRows = [
+        `${bold}${magenta}Navigation${reset}`,
+        `  ${bold}q${reset}         toggle tunnel QR view`,
+        `  ${bold}?${reset}         toggle this shortcuts sheet`,
+        `  ${bold}Esc${reset}       return to live bridge status`,
+        `  ${bold}Enter${reset}     return to live bridge status`,
+        "",
+        `${bold}${magenta}Exit interstitial${reset}`,
+        `  ${bold}Ctrl+C${reset}    open the exit prompt`,
+        `  ${bold}Ctrl+C${reset}    again keeps the tmux session`,
+        `  ${bold}Enter${reset}     keep session and close bridge`,
+        `  ${bold}k${reset}         kill the tmux session`,
+        `  ${bold}c${reset}         continue serving`,
+        "",
+        `${bold}${magenta}Health dots${reset}`,
+        `  ${green}●${reset}         endpoint passed /health`,
+        `  ${gray}·${reset}         waiting for first successful probe`,
+      ];
     } else {
+      const statusLines = [
+        `  ${tunnelDot(state.tunnelStatus)} tunnel      ${tunnelStatusLabel(state.tunnelStatus)}${state.tunnelNote ? ` · ${state.tunnelNote}` : ""}`,
+        `  ${cyan}●${reset} exposure    ${exposure}`,
+        `  ${cyan}●${reset} auth        ${passwordEnabled ? "password required" : "token only"}`,
+        `  ${cyan}●${reset} clients     ${state.connectedClients} connected`,
+        `  ${cyan}●${reset} health      ${currentHealthSummary()}`,
+        `  ${cyan}●${reset} activity    ${state.lastActivityLabel} · ${formatRelativeDuration(state.lastActivityAt)}`,
+        `  ${cyan}●${reset} requests    ${state.requestCount} observed`,
+      ];
+
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}live bridge status${reset}`,
         "",
@@ -810,15 +912,12 @@ function createDashboardPrinter({
         ...localEntries.map((entry) => `  ${healthDot(entry)} ${entry}`),
         "",
         `${bold}${magenta}Status${reset}`,
-        `  ${gray}·${reset} Press q to reveal the tunnel QR code`,
-        `  ${gray}·${reset} Ctrl+C warns before leaving tmux running`,
-        `  ${gray}·${reset} Public tunnels expire after 24h of inactivity`,
-        `  ${gray}·${reset} ${tunnelEnabled ? "Requests below include live stream opens/closes and API traffic" : "Watching local traffic only"}`,
+        ...statusLines,
         "",
         `${bold}${yellow}Request log${reset}`,
       ];
 
-      const logHeight = Math.max(6, rows - headerLines.length - 3);
+      const logHeight = Math.max(6, rows - headerLines.length - 4);
       const plainWaiting = `${dim}waiting for traffic…${reset}`;
       const lines = state.logLines.length > 0 ? state.logLines.slice(-logHeight) : [plainWaiting];
       const fillerCount = Math.max(0, logHeight - lines.length);
@@ -828,7 +927,7 @@ function createDashboardPrinter({
       ].slice(-logHeight);
     }
 
-    const availableContentRows = Math.max(6, rows - headerLines.length - 3);
+    const availableContentRows = Math.max(6, rows - headerLines.length - 4);
     if (contentRows.length > availableContentRows) {
       contentRows = contentRows.slice(-availableContentRows);
     }
@@ -839,7 +938,7 @@ function createDashboardPrinter({
 
     process.stdout.write("\x1b[?25l");
     process.stdout.write("\x1b[H\x1b[2J");
-    process.stdout.write(`${headerLines.join("\n")}\n${topBorder}\n${boxedRows.join("\n")}\n${bottomBorder}`);
+    process.stdout.write(`${headerLines.join("\n")}\n${topBorder}\n${boxedRows.join("\n")}\n${bottomBorder}\n${footerText(width)}`);
   }
 
   attachInput();
@@ -867,6 +966,14 @@ function createDashboardPrinter({
       if (state.logLines.length > 250) {
         state.logLines = state.logLines.slice(-250);
       }
+      state.connectedClients = event.connectedClients ?? state.connectedClients;
+      state.requestCount += 1;
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = event.kind === "request"
+        ? `${String(event.method || "REQ").toUpperCase()} ${event.path}`
+        : event.kind === "stream-open"
+          ? `SSE opened ${event.path}`
+          : `SSE closed ${event.path}`;
       render();
     },
     addMessage(message) {
@@ -874,6 +981,8 @@ function createDashboardPrinter({
       if (state.logLines.length > 250) {
         state.logLines = state.logLines.slice(-250);
       }
+       state.lastActivityAt = Date.now();
+       state.lastActivityLabel = message;
       render();
     },
     suspend() {
@@ -1172,7 +1281,7 @@ async function main() {
   let shuttingDown = false;
   let promptingForExit = false;
 
-  shutdown = async function shutdown({ killTarget = false } = {}) {
+  shutdown = async function shutdown({ killTarget = false, exitCode = 0 } = {}) {
     if (shuttingDown) {
       return;
     }
@@ -1192,7 +1301,7 @@ async function main() {
       await killSession(target);
     }
     dashboard?.stop();
-    process.exit(0);
+    process.exit(exitCode);
   };
 
   process.on("SIGINT", async () => {

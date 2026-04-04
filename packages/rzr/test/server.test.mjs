@@ -138,7 +138,11 @@ test("createRemoteServer marks snapshots missing after tmux target disappears", 
     missing = true;
 
     await waitFor(async () => {
-      const after = await readJson(`http://127.0.0.1:${server.port}/api/session`, "test-token");
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/session`, {
+        headers: { "x-rzr-token": "test-token" },
+      });
+      assert.equal(response.status, 410);
+      const after = await response.json();
       assert.equal(after.snapshot.info.dead, true);
       assert.equal(after.snapshot.info.missing, true);
       assert.equal(after.snapshot.info.currentCommand, "session not found");
@@ -269,6 +273,55 @@ test("createRemoteServer exposes a session-scoped authenticated input endpoint",
     assert.equal(payload.target, "input-test");
     assert.equal(payload.applied.text, "hello");
     assert.equal(payload.applied.key, "Enter");
+  } finally {
+    await server.close();
+  }
+});
+
+test("createRemoteServer blocks new interactive session access once the wrapped command is dead", async () => {
+  const port = await getFreePort();
+  const server = await createRemoteServer({
+    target: "dead-test",
+    host: "127.0.0.1",
+    port,
+    token: "dead-token",
+    refreshIntervalMs: 20,
+    capturePane: async () => "error: unexpected argument '--most-recent' found\n",
+    getSessionInfo: async () => ({
+      name: "dead-test",
+      dead: true,
+      currentCommand: "codex",
+      exitStatus: 2,
+      width: 80,
+      height: 24,
+      title: "",
+    }),
+  });
+
+  try {
+    const sessionResponse = await fetch(`http://127.0.0.1:${server.port}/api/session`, {
+      headers: { "x-rzr-token": "dead-token" },
+    });
+    assert.equal(sessionResponse.status, 410);
+    const sessionPayload = await sessionResponse.json();
+    assert.match(sessionPayload.error, /wrapped command exited with status 2/i);
+    assert.equal(sessionPayload.snapshot.info.dead, true);
+    assert.equal(sessionPayload.snapshot.info.exitStatus, 2);
+
+    const inputResponse = await fetch(`http://127.0.0.1:${server.port}/api/session/input`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-rzr-token": "dead-token",
+      },
+      body: JSON.stringify({ text: "whoami" }),
+    });
+    assert.equal(inputResponse.status, 410);
+    const inputPayload = await inputResponse.json();
+    assert.match(inputPayload.error, /wrapped command exited with status 2/i);
+
+    const healthResponse = await fetch(`http://127.0.0.1:${server.port}/health`);
+    assert.equal(healthResponse.status, 410);
   } finally {
     await server.close();
   }

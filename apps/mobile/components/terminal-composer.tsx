@@ -3,7 +3,12 @@ import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { useRef, useState } from 'react';
-import { Platform, Pressable as RNPressable, type TextInput as RNTextInput } from 'react-native';
+import {
+  Keyboard,
+  Platform,
+  Pressable as RNPressable,
+  type TextInput as RNTextInput,
+} from 'react-native';
 import { Text, TextInput, View } from '@/tw';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
 import { cx } from '@/lib/utils';
@@ -46,6 +51,7 @@ function TapButton({ onPress, children, style }: {
 export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, onForget }: Props) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<RNTextInput>(null);
   const { sendInput, pressKey } = useTerminalApi(sessionUrl, token, auth);
 
@@ -96,6 +102,8 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
             ref={inputRef}
             value={text}
             onChangeText={setText}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             placeholder="Type commands..."
             placeholderTextColor="rgba(255,255,255,0.28)"
             autoCapitalize="none"
@@ -143,6 +151,16 @@ export function TerminalComposer({ sessionUrl, token, auth, onReload, onClear, o
 
         <View className="flex-1" />
 
+        {isFocused ? (
+          <TapButton
+            onPress={() => {
+              inputRef.current?.blur();
+              Keyboard.dismiss();
+            }}
+            style={actionStyle}>
+            <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.52)" />
+          </TapButton>
+        ) : null}
         {onReload ? (
           <TapButton onPress={onReload} style={actionStyle}>
             <Ionicons name="refresh" size={14} color="rgba(255,255,255,0.44)" />

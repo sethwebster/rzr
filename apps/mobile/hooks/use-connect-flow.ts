@@ -95,6 +95,7 @@ export function useConnectFlow() {
   const readyFiredRef = useRef(false);
   const verifyingNonceRef = useRef<number | null>(null);
   const handledNonceRef = useRef<number | null>(null);
+  const pendingNavigationSessionIdRef = useRef<string | null>(null);
 
   if (!storeRef.current) {
     storeRef.current = new ConnectFlowStore(getInitialDraft(activeSession));
@@ -162,7 +163,7 @@ export function useConnectFlow() {
     }
 
     handledNonceRef.current = nonce;
-    connectSession({
+    const nextSession = connectSession({
       label: resolved.label,
       url: resolved.normalizedUrl,
       token: resolved.token,
@@ -170,11 +171,9 @@ export function useConnectFlow() {
       accent: resolved.accent,
       source: resolved.source,
     });
-    router.push('/(tabs)/terminal');
-    setTimeout(() => {
-      store.send({ type: 'RESET' });
-    }, 0);
+    pendingNavigationSessionIdRef.current = nextSession.id;
   }, [
+    activeSession,
     connectSession,
     sessions,
     snapshot.context.requestNonce,
@@ -182,6 +181,18 @@ export function useConnectFlow() {
     snapshot.state,
     store,
   ]);
+
+  useEffect(() => {
+    const pendingSessionId = pendingNavigationSessionIdRef.current;
+    if (!pendingSessionId) return;
+    if (activeSession?.id !== pendingSessionId) return;
+
+    pendingNavigationSessionIdRef.current = null;
+    router.replace('/(tabs)/terminal');
+    setTimeout(() => {
+      store.send({ type: 'RESET' });
+    }, 0);
+  }, [activeSession, store]);
 
   const actions = useMemo(
     () => ({

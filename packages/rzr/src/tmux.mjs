@@ -1,5 +1,11 @@
 import { spawn } from "node:child_process";
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function run(command, args, { input, allowFailure = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -83,6 +89,89 @@ export function parseSessionsOutput(output) {
     });
 }
 
+export function describeLaunchFailure({ exists, info, paneOutput }) {
+  if (!exists) {
+    return "wrapped command exited during launch before the tmux session became available";
+  }
+
+  if (info?.dead) {
+    const exitSuffix =
+      typeof info.exitStatus === "number" ? ` (exit status ${info.exitStatus})` : "";
+    const lines = String(paneOutput || "")
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+    const tail = lines.slice(-3).join("\n");
+    return [
+      `wrapped command exited during launch${exitSuffix}`,
+      tail ? `Last output:\n\n${tail}\n\n` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return null;
+}
+
+async function verifySessionLaunch(
+  name,
+  { timeoutMs = 2200, pollIntervalMs = 75, stableDurationMs = 1200 } = {},
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastExists = false;
+  let lastInfo = null;
+  let lastPaneOutput = "";
+  let stableSince = null;
+
+  while (Date.now() < deadline) {
+    lastExists = await hasSession(name);
+    if (lastExists) {
+      lastInfo = await getSessionInfo(name);
+      if (lastInfo.dead) {
+        try {
+          lastPaneOutput = await capturePane(name, 80);
+        } catch {
+          // ignore capture failures during launch checks
+        }
+
+        const failure = describeLaunchFailure({
+          exists: lastExists,
+          info: lastInfo,
+          paneOutput: lastPaneOutput,
+        });
+
+        await killSession(name);
+        throw new Error(failure || "wrapped command exited during launch");
+      }
+
+      if (stableSince == null) {
+        stableSince = Date.now();
+      }
+
+      if (Date.now() - stableSince >= stableDurationMs) {
+        return;
+      }
+    } else {
+      stableSince = null;
+    }
+
+    await sleep(pollIntervalMs);
+  }
+
+  const failure = describeLaunchFailure({
+    exists: lastExists,
+    info: lastInfo,
+    paneOutput: lastPaneOutput,
+  });
+
+  if (!failure) {
+    return;
+  }
+
+  await killSession(name);
+  throw new Error(failure);
+}
+
 export async function createSession({ name, cwd, command, cols = 120, rows = 40 }) {
   const args = [
     "new-session",
@@ -104,6 +193,7 @@ export async function createSession({ name, cwd, command, cols = 120, rows = 40 
   await run("tmux", args);
   await run("tmux", ["set-option", "-t", name, "history-limit", "50000"]);
   await run("tmux", ["set-option", "-t", name, "remain-on-exit", "on"]);
+  await verifySessionLaunch(name);
 }
 
 export async function capturePane(target, lines = 2000) {

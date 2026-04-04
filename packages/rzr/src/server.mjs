@@ -145,6 +145,25 @@ function broadcastHeartbeat(clients) {
   }
 }
 
+function isSnapshotInteractive(snapshot) {
+  return !snapshot.info?.dead && !snapshot.info?.missing;
+}
+
+function terminalUnavailableReason(snapshot) {
+  if (snapshot.info?.missing) {
+    return "tmux session is no longer available";
+  }
+
+  if (snapshot.info?.dead) {
+    if (typeof snapshot.info?.exitStatus === "number") {
+      return `wrapped command exited with status ${snapshot.info.exitStatus}`;
+    }
+    return "wrapped command has exited";
+  }
+
+  return "terminal is unavailable";
+}
+
 export function makeToken() {
   return randomBytes(18).toString("base64url");
 }
@@ -332,6 +351,16 @@ export async function createRemoteServer({
 
     if (request.method === "GET" && url.pathname === "/api/session") {
       markActivity();
+      if (!isSnapshotInteractive(snapshot)) {
+        json(response, 410, {
+          error: terminalUnavailableReason(snapshot),
+          target,
+          readonly: true,
+          passwordRequired,
+          snapshot,
+        });
+        return;
+      }
       json(response, 200, {
         target,
         readonly,
@@ -379,6 +408,10 @@ export async function createRemoteServer({
         json(response, 403, { error: "session is read-only" });
         return;
       }
+      if (!isSnapshotInteractive(snapshot)) {
+        json(response, 410, { error: terminalUnavailableReason(snapshot), snapshot });
+        return;
+      }
 
       try {
         const { text: value } = await readJsonBody(request);
@@ -395,6 +428,10 @@ export async function createRemoteServer({
     if (request.method === "POST" && url.pathname === "/api/key") {
       if (readonly) {
         json(response, 403, { error: "session is read-only" });
+        return;
+      }
+      if (!isSnapshotInteractive(snapshot)) {
+        json(response, 410, { error: terminalUnavailableReason(snapshot), snapshot });
         return;
       }
 
@@ -416,6 +453,10 @@ export async function createRemoteServer({
     if (request.method === "POST" && url.pathname === "/api/session/input") {
       if (readonly) {
         json(response, 403, { error: "session is read-only" });
+        return;
+      }
+      if (!isSnapshotInteractive(snapshot)) {
+        json(response, 410, { error: terminalUnavailableReason(snapshot), snapshot });
         return;
       }
 
@@ -465,6 +506,10 @@ export async function createRemoteServer({
         json(response, 403, { error: "session is read-only" });
         return;
       }
+      if (!isSnapshotInteractive(snapshot)) {
+        json(response, 410, { error: terminalUnavailableReason(snapshot), snapshot });
+        return;
+      }
 
       try {
         const { cols, rows } = await readJsonBody(request);
@@ -479,6 +524,10 @@ export async function createRemoteServer({
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
+      if (!isSnapshotInteractive(snapshot)) {
+        text(response, 410, terminalUnavailableReason(snapshot));
+        return;
+      }
       text(response, 200, "ok");
       return;
     }

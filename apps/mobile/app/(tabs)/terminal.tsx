@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
-import { useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Keyboard, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeInDown,
@@ -24,6 +24,7 @@ import { useSession } from '@/providers/session-provider';
 export default function TerminalScreen() {
   const { activeSession, clearActiveSession, removeSession } = useSession();
   const [webKey, setWebKey] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const insets = useSafeAreaInsets();
 
   useHideTabBar(!!activeSession);
@@ -32,6 +33,15 @@ export default function TerminalScreen() {
   const composerAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: -keyboard.height.value }],
   }));
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   if (!activeSession) {
     return (
@@ -44,7 +54,7 @@ export default function TerminalScreen() {
               {'Terminal\nwaiting.'}
             </Text>
             <Text className="max-w-[280px] text-[16px] leading-7 text-white/58">
-              Open a bridge from the home tab or fire a deep link into the app and we'll
+              Open a bridge from the home tab or fire a deep link into the app and we&apos;ll
               drop it here instantly.
             </Text>
           </View>
@@ -57,23 +67,98 @@ export default function TerminalScreen() {
   const headerHeight = insets.top + 80;
   const composerBottom = insets.bottom + 12;
   const composerHeight = 240;
+  const terminalInstanceKey = `${activeSession.id}:${activeSession.lastConnectedAt}:${webKey}`;
 
-  const injectedCSS = `.screen{padding-top:${headerHeight}px!important;padding-bottom:${composerHeight}px!important}html,body{background:#050816!important}`;
+  const injectedCSS = `
+    html,body{
+      background:#050816!important;
+      width:100%!important;
+      max-width:100%!important;
+      overflow-x:hidden!important;
+      overscroll-behavior-x:none!important;
+      touch-action:pan-y!important;
+    }
+    .screen{
+      padding-top:${headerHeight}px!important;
+      padding-bottom:${composerHeight}px!important;
+      width:100%!important;
+      max-width:100%!important;
+      overflow-x:hidden!important;
+      overscroll-behavior-x:none!important;
+    }
+    body>*{
+      max-width:100%!important;
+    }
+  `;
   const injectedBeforeLoad = `
-    var s=document.createElement('style');s.textContent=${JSON.stringify(injectedCSS)};document.documentElement.appendChild(s);true;
+    (function(){
+      var css=${JSON.stringify(injectedCSS)};
+      var s=document.createElement('style');
+      s.textContent=css;
+      document.documentElement.appendChild(s);
+
+      var lockX=function(){
+        if(window.scrollX!==0){
+          window.scrollTo(0, window.scrollY || 0);
+        }
+        if(document.documentElement){
+          document.documentElement.style.overflowX='hidden';
+        }
+        if(document.body){
+          document.body.style.overflowX='hidden';
+        }
+      };
+
+      var touchStartX=0;
+      var touchStartY=0;
+
+      window.addEventListener('scroll', lockX, { passive: true });
+      window.addEventListener('touchstart', function(e){
+        if(!e.touches || !e.touches.length) return;
+        touchStartX=e.touches[0].clientX;
+        touchStartY=e.touches[0].clientY;
+      }, { passive: true });
+      window.addEventListener('touchmove', function(e){
+        if(!e.touches || !e.touches.length) return;
+        var dx=Math.abs(e.touches[0].clientX-touchStartX);
+        var dy=Math.abs(e.touches[0].clientY-touchStartY);
+        if(dx>dy){
+          e.preventDefault();
+          lockX();
+        }
+      }, { passive: false });
+
+      lockX();
+    })();
+    true;
   `;
   const injectedAfterLoad = `
-    var s=document.createElement('style');s.textContent=${JSON.stringify(injectedCSS)};document.head.appendChild(s);true;
+    (function(){
+      var s=document.createElement('style');
+      s.textContent=${JSON.stringify(injectedCSS)};
+      document.head.appendChild(s);
+      document.documentElement.style.overflowX='hidden';
+      if(document.body){
+        document.body.style.overflowX='hidden';
+      }
+      if(window.scrollX!==0){
+        window.scrollTo(0, window.scrollY || 0);
+      }
+    })();
+    true;
   `;
 
   return (
     <View className="flex-1 bg-rzr-ink">
       <WebView
-        key={webKey}
+        key={terminalInstanceKey}
         source={{ uri: activeSession.url + (activeSession.url.includes('?') ? '&' : '?') + 'chrome=0' }}
         startInLoadingState
         originWhitelist={['*']}
         style={styles.webview}
+        bounces={false}
+        overScrollMode="never"
+        keyboardDismissMode="on-drag"
         injectedJavaScriptBeforeContentLoaded={injectedBeforeLoad}
         injectedJavaScript={injectedAfterLoad}
         renderLoading={() => (
@@ -90,6 +175,14 @@ export default function TerminalScreen() {
           return true;
         }}
       />
+
+      {keyboardVisible ? (
+        <Pressable
+          onPress={() => Keyboard.dismiss()}
+          style={StyleSheet.absoluteFillObject}
+          className="bg-transparent"
+        />
+      ) : null}
 
       <GlassSafeAreaView
         leftSlot={
