@@ -1,4 +1,4 @@
-import { HStack, Text } from '@expo/ui/swift-ui';
+import { HStack, Image, Text } from '@expo/ui/swift-ui';
 import { font, foregroundStyle, padding } from '@expo/ui/swift-ui/modifiers';
 import { createLiveActivity } from 'expo-widgets';
 
@@ -13,22 +13,16 @@ const RzrSessionLiveActivityView = (
   return {
     bannerSmall: (
       <HStack modifiers={[padding({ all: 12 })]}>
-        <Text modifiers={[font({ size: 14, weight: 'black', design: 'monospaced' }), foregroundStyle('#7CF6FF')]}>
-          RZR
-        </Text>
+        <Image assetName="RzrLogo" color="#7CF6FF" />
       </HStack>
     ),
     banner: (
       <HStack modifiers={[padding({ all: 14 })]}>
-        <Text modifiers={[font({ size: 22, weight: 'black', design: 'monospaced' }), foregroundStyle('#7CF6FF')]}>
-          RZR
-        </Text>
+        <Image assetName="RzrLogo" color="#7CF6FF" />
       </HStack>
     ),
     compactLeading: (
-      <Text modifiers={[font({ size: 12, weight: 'black', design: 'monospaced' }), foregroundStyle('#7CF6FF')]}>
-        RZR
-      </Text>
+      <Image assetName="RzrLogo" color="#7CF6FF" />
     ),
     compactTrailing: (
       <Text modifiers={[font({ size: 12, weight: 'bold' }), foregroundStyle('#FFFFFF')]}>
@@ -36,9 +30,7 @@ const RzrSessionLiveActivityView = (
       </Text>
     ),
     minimal: (
-      <Text modifiers={[font({ size: 10, weight: 'black', design: 'monospaced' }), foregroundStyle('#7CF6FF')]}>
-        R
-      </Text>
+      <Image assetName="RzrLogo" color="#7CF6FF" />
     ),
   };
 };
