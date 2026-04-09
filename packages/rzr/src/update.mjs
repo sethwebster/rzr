@@ -1,3 +1,5 @@
+import { spawn as spawnChild } from "node:child_process";
+
 function splitVersion(version) {
   const normalized = String(version || "")
     .trim()
@@ -44,8 +46,19 @@ export function isUpdateCheckEnabled(env = process.env) {
   return !["1", "0", "false", "no", "off"].includes(raw);
 }
 
-export function buildUpdateCommand(packageName) {
+export function buildUpdateCommand(packageName, method = "global") {
+  if (method === "npx") {
+    return `npx ${packageName}@latest --version`;
+  }
   return `npm install -g ${packageName}@latest`;
+}
+
+export function detectLaunchMethod(argv = process.argv) {
+  const bin = String(argv[1] || "");
+  if (bin.includes(".npx") || bin.includes("/_npx/") || bin.includes("\\_npx\\")) {
+    return "npx";
+  }
+  return "global";
 }
 
 export async function fetchLatestVersion({
@@ -98,4 +111,46 @@ export async function checkForUpdate({
     latestVersion,
     command: buildUpdateCommand(packageName),
   };
+}
+
+export function performUpdate({ packageName, method = "global" }) {
+  const command = method === "npx"
+    ? "npx"
+    : "npm";
+  const args = method === "npx"
+    ? [`${packageName}@latest`, "--version"]
+    : ["install", "-g", `${packageName}@latest`];
+
+  return new Promise((resolve) => {
+    let stderr = "";
+
+    const child = spawnChild(command, args, {
+      stdio: ["ignore", "ignore", "pipe"],
+      env: process.env,
+    });
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+      if (stderr.length > 2000) {
+        stderr = stderr.slice(-2000);
+      }
+    });
+
+    child.on("error", (error) => {
+      resolve({ success: false, error: error.message, stderr });
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ success: true });
+      } else {
+        resolve({
+          success: false,
+          error: `${command} exited with code ${code}`,
+          stderr: stderr.trim().slice(-500),
+        });
+      }
+    });
+  });
 }

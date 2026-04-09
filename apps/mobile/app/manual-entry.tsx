@@ -1,10 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { type ComponentProps, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, Text, TextInput, View } from '@/tw';
+import { ActivityIndicator, SafeAreaView, Text, TextInput, View } from '@/tw';
 
+import { ActionPillButton, FieldPanel } from '@/components/design-elements';
 import { PremiumButton } from '@/components/premium-button';
 import { prepareManualConnection, verifyConnection } from '@/lib/connect-flow/connection';
-import { useSession } from '@/providers/session-provider';
+import { useSessionActions, useSessionList } from '@/hooks/use-session-data';
 import { type SessionAccent } from '@/types/session';
 import { accentClasses, cx } from '@/lib/utils';
 
@@ -19,7 +20,8 @@ type ManualEntryParams = {
 
 export default function ManualEntryScreen() {
   const params = useLocalSearchParams<ManualEntryParams>();
-  const { connectSession, sessions } = useSession();
+  const { connectSession } = useSessionActions();
+  const { sessions } = useSessionList();
   const [draft, setDraft] = useState({
     label: typeof params.label === 'string' && params.label.length ? params.label : 'Night Shift',
     remoteUrl: typeof params.remoteUrl === 'string' ? params.remoteUrl : '',
@@ -112,7 +114,7 @@ export default function ManualEntryScreen() {
                   throw new Error(`A session labeled "${connection.label}" already exists.`);
                 }
                 await verifyConnection(connection);
-                connectSession({
+                const nextSession = connectSession({
                   label: connection.label,
                   url: connection.normalizedUrl,
                   token: connection.token,
@@ -120,7 +122,10 @@ export default function ManualEntryScreen() {
                   accent: connection.accent,
                   source: connection.source,
                 });
-                router.replace('/(tabs)/terminal');
+                router.replace({
+                  pathname: '/(tabs)/sessions/[id]',
+                  params: { id: nextSession.id },
+                });
               } catch (nextError) {
                 setError(
                   nextError instanceof Error ? nextError.message : 'Unable to connect that session.',
@@ -148,16 +153,13 @@ export default function ManualEntryScreen() {
 function InputField(props: ComponentProps<typeof TextInput> & { label: string }) {
   const { label, ...inputProps } = props;
   return (
-    <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-      <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
-        {label}
-      </Text>
+    <FieldPanel label={label}>
       <TextInput
         {...inputProps}
         placeholderTextColor="rgba(255,255,255,0.28)"
         className="text-[15px] text-white"
       />
-    </View>
+    </FieldPanel>
   );
 }
 
@@ -173,9 +175,7 @@ function PressableChip({
   palette: ReturnType<typeof accentClasses>;
 }) {
   const chipClassName = cx(
-    'rounded-full border px-3 py-2',
-    selected ? palette.border : 'border-white/10',
-    selected ? palette.background : 'bg-white/5',
+    selected ? `${palette.border} ${palette.background}` : 'border-white/10 bg-white/5',
   );
   const textClassName = cx(
     'text-[12px] font-semibold capitalize',
@@ -183,8 +183,13 @@ function PressableChip({
   );
 
   return (
-    <Pressable onPress={onPress} className={chipClassName}>
-      <Text className={textClassName}>{label}</Text>
-    </Pressable>
+    <ActionPillButton
+      onPress={onPress}
+      label={label}
+      tone={selected ? 'primary' : 'neutral'}
+      size="sm"
+      className={cx(chipClassName, 'gap-0')}
+      textClassName={textClassName}
+    />
   );
 }

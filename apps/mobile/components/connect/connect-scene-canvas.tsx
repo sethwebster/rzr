@@ -13,6 +13,7 @@ import {
   useCursorBlink,
   useTypingFrameScheduler,
 } from '@/hooks/use-connect-stage-animations';
+import { radii } from '@/lib/design-system';
 import { buildPrefixedScript } from '@/lib/typing-script';
 import { type ConnectAnimationScene } from '@/lib/connect-flow/types';
 import { Text, View } from '@/tw';
@@ -109,7 +110,7 @@ export function ConnectSceneCanvas({
               y={SCREEN_H * scene.anchorY - 38}
               width={scene.cardWidth}
               height={76}
-              r={28}
+              r={radii.card}
               color="rgba(7,11,18,0.26)"
             />
             <RoundedRect
@@ -117,7 +118,7 @@ export function ConnectSceneCanvas({
               y={SCREEN_H * scene.anchorY - 38}
               width={scene.cardWidth}
               height={76}
-              r={28}
+              r={radii.card}
               color="rgba(255,255,255,0.12)"
               style="stroke"
               strokeWidth={1}
@@ -236,7 +237,7 @@ const styles = StyleSheet.create({
   },
   revealCard: {
     width: Math.min(SCREEN_W - 36, 380),
-    borderRadius: 26,
+    borderRadius: radii.card,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     backgroundColor: 'rgba(7, 11, 18, 0.72)',

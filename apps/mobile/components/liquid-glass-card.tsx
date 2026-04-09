@@ -17,7 +17,7 @@ export function LiquidGlassCard({
   ...rest
 }: Props) {
   const sharedClassName = cx(
-    'overflow-hidden rounded-[28px] border border-white/12 bg-white/5',
+    'overflow-hidden rounded-card border border-white/12 bg-white/5',
     className,
   );
 

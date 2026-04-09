@@ -1,6 +1,6 @@
 {
   "name": "@sethwebster/rzr",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A razor-thin remote around any terminal process",
   "license": "MIT",
   "type": "module",
@@ -36,9 +36,12 @@
   ],
   "scripts": {
     "start": "node ./src/cli.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "tmux:control-spike": "node ./scripts/tmux-control-spike.mjs"
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "qrcode-terminal": "^0.12.0"
   }
 }

@@ -51,14 +51,17 @@ export default function ComposerV2Screen() {
     [viewportHeight],
   );
 
+  const initialDetentHeight = detentHeights[0] ?? 160;
+
   const progress = useSharedValue(0);
-  const sheetHeight = useSharedValue(detentHeights[0] ?? 160);
+  const sheetHeight = useSharedValue(initialDetentHeight);
   const keyboardOffset = useSharedValue(0);
-  const dragStartHeight = useSharedValue(sheetHeight.value);
+  const dragStartHeight = useSharedValue(initialDetentHeight);
 
   useEffect(() => {
-    sheetHeight.value = detentHeights[0] ?? 160;
-  }, [detentHeights, sheetHeight]);
+    sheetHeight.value = initialDetentHeight;
+    dragStartHeight.value = initialDetentHeight;
+  }, [dragStartHeight, initialDetentHeight, sheetHeight]);
 
   useEffect(() => {
     progress.value = withTiming(1, { duration: 220 });
@@ -143,11 +146,11 @@ export default function ComposerV2Screen() {
 
       <Animated.View style={sheetStyle}>
         <LiquidGlassCard
-          className="flex-1 rounded-t-[20px] rounded-b-none bg-transparent"
+          className="flex-1 rounded-t-panel rounded-b-none bg-transparent"
           tintColor="rgba(255,255,255,0.03)"
           style={{ borderWidth: 0 }}>
           <View
-            className="flex-1 overflow-hidden rounded-t-[20px] rounded-b-none"
+            className="flex-1 overflow-hidden rounded-t-panel rounded-b-none"
             style={{ backgroundColor: "transparent" }}>
             <GestureDetector gesture={panGesture}>
               <View className="items-center pb-2 pt-3">

@@ -3,19 +3,42 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 import { createRequire } from "node:module";
 import { createRemoteServer, makeToken } from "./server.mjs";
+import { createTmuxSessionRuntime } from "./session-runtime/tmux-runtime.mjs";
 import {
   buildPublicSlug,
+  createRemoteCheckoutSession,
+  createRemotePortalSession,
   DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_REMOTE_HEARTBEAT_TIMEOUT_MS,
+  getRemoteAccount,
   getRemoteGatewayConfig,
+  logoutRemoteAccount,
+  pollRemoteCliAuth,
+  releaseRemoteHostname,
+  requestRemoteMagicLink,
   registerRemoteSession,
+  reserveRemoteHostname,
+  sendRemoteSessionHeartbeat,
+  sendTestPush,
+  sanitizePublicSlug,
   unregisterRemoteSession,
 } from "./gateway.mjs";
-import { startBestTunnel } from "./tunnel.mjs";
-import { checkForUpdate, isUpdateCheckEnabled } from "./update.mjs";
+import { clearAuth, getAuthFilePath, loadConfig, loadSavedAuth, openUrl, saveAuth, saveConfig } from "./auth.mjs";
+import { adoptTunnelProcess, startBestTunnel } from "./tunnel.mjs";
+import { checkForUpdate, detectLaunchMethod, isUpdateCheckEnabled, performUpdate } from "./update.mjs";
+import {
+  acquireUpdateLock,
+  cleanupStaleHandoff,
+  consumeHandoff,
+  releaseUpdateLock,
+  serializeHandoff,
+  waitForHandoffSentinel,
+  writeHandoffSentinel,
+} from "./handoff.mjs";
 import {
   attachSession,
   createSession,
@@ -23,6 +46,7 @@ import {
   hasSession,
   killSession,
   listSessions,
+  respawnSession,
 } from "./tmux.mjs";
 
 const CLI_DIR = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +61,14 @@ function printUsage() {
 Usage:
   rzr run [--name NAME] [--port PORT] [--host HOST] [--cwd PATH] [--readonly] [--tunnel] [--no-tunnel] [--tunnel-name VALUE] [--password VALUE] [--remote-base-url URL] [--remote-register-secret VALUE] [--non-interactive] -- <command...>
   rzr attach <tmux-session> [--port PORT] [--host HOST] [--readonly] [--tunnel] [--no-tunnel] [--tunnel-name VALUE] [--password VALUE] [--remote-base-url URL] [--remote-register-secret VALUE] [--non-interactive]
+  rzr auth login [EMAIL] [--remote-base-url URL] [--no-open]
+  rzr auth status [--remote-base-url URL]
+  rzr auth checkout [--remote-base-url URL]
+  rzr auth portal [--remote-base-url URL]
+  rzr auth reserve <hostname> [--remote-base-url URL]
+  rzr auth unreserve [--remote-base-url URL]
+  rzr auth logout [--remote-base-url URL]
+  rzr push [--title TITLE] [--body BODY] --developer-mode [--remote-base-url URL]
   rzr list
 
 Examples:
@@ -48,6 +80,7 @@ Examples:
   rzr run --password secret -- codex
   rzr run --cwd /Users/me/project -- /bin/zsh
   rzr attach claude
+  rzr auth login you@rzr.live
 `);
 }
 
@@ -140,8 +173,38 @@ function parseFlags(argv) {
           index += 1;
         }
         break;
+      case "email":
+        flags.email = next;
+        if (inline == null) {
+          index += 1;
+        }
+        break;
+      case "no-open":
+        flags.noOpen = true;
+        break;
       case "non-interactive":
         flags.nonInteractive = true;
+        break;
+      case "handoff":
+        flags.handoff = next;
+        if (inline == null) {
+          index += 1;
+        }
+        break;
+      case "developer-mode":
+        flags.developerMode = true;
+        break;
+      case "title":
+        flags.title = next;
+        if (inline == null) {
+          index += 1;
+        }
+        break;
+      case "body":
+        flags.body = next;
+        if (inline == null) {
+          index += 1;
+        }
         break;
       default:
         throw new Error(`unknown flag --${key}`);
@@ -224,49 +287,249 @@ function printTmuxInstallHelp() {
   console.error("Then rerun `rzr`.");
 }
 
-function getTunnelToolStatus() {
-  return {
-    cloudflared: commandExists("cloudflared"),
-    ngrok: commandExists("ngrok"),
-    npx: commandExists("npx"),
-  };
-}
-
-function getTunnelInstallCommands() {
-  if (process.platform === "darwin") {
-    return [
-      "brew install cloudflared",
-      "brew install ngrok/ngrok/ngrok",
-      "npm install -g localtunnel",
-    ];
-  }
-
-  if (process.platform === "linux") {
-    return [
-      "brew install cloudflared",
-      "brew install ngrok/ngrok/ngrok",
-      "npm install -g localtunnel",
-    ];
-  }
-
-  return [
-    "brew install cloudflared",
-    "brew install ngrok/ngrok/ngrok",
-    "npm install -g localtunnel",
-  ];
-}
-
 function printTunnelInstallHelp() {
-  const commands = getTunnelInstallCommands();
+  console.error("cloudflared is required for public tunnels but was not found.");
+  console.error("");
+  console.error("Install it with:");
+  console.error("  brew install cloudflared");
+  console.error("");
+}
 
-  console.error("Tunneling was requested but no supported tunnel tool was found.");
-  console.error("");
-  console.error("Install one of:");
-  for (const command of commands) {
-    console.error(`  ${command}`);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function handleAuthCommand(argv) {
+  const subcommand = argv[0] || "status";
+  const { flags, positionals } = parseFlags(argv.slice(1));
+  const remoteGateway = getRemoteGatewayConfig({ flags });
+  const savedAuth = loadSavedAuth();
+  const baseUrl = remoteGateway.baseUrl || savedAuth?.baseUrl;
+
+  if (!baseUrl) {
+    throw new Error("remote gateway base URL is not configured");
   }
-  console.error("");
-  console.error("rzr will prefer cloudflared, then ngrok, then localtunnel via npx.");
+
+  async function syncAccount(accessToken) {
+    let account;
+    try {
+      account = await getRemoteAccount({
+        baseUrl,
+        accessToken,
+      });
+    } catch {
+      clearAuth();
+      throw new Error("saved CLI auth is no longer valid; signed out locally");
+    }
+
+    saveAuth({
+      ...(savedAuth || {}),
+      accessToken,
+      baseUrl,
+      user: account.user,
+      savedAt: new Date().toISOString(),
+    });
+
+    return account;
+  }
+
+  async function requireAccount() {
+    if (!savedAuth?.accessToken) {
+      throw new Error("not signed in (use `rzr auth login you@example.com`)");
+    }
+
+    return syncAccount(savedAuth.accessToken);
+  }
+
+  function printAccountStatus(user) {
+    console.log(`Signed in as account ${user.id}`);
+    console.log(`Plan: ${user.planCode} (${user.subscriptionStatus})`);
+    console.log(`Claimed sessions: ${user.claimedSessionCount}`);
+    console.log(`Reserved hostname: ${user.reservedHostname || 'none'}`);
+    console.log(`Ephemeral named tunnels: ${user.usage.activeEphemeralNamedHostnames}/${user.entitlements.ephemeralNamedLimit}`);
+    if (user.billingActions?.canStartCheckout) {
+      console.log('Upgrade available: `rzr auth checkout`');
+    }
+    if (user.billingActions?.canManageBilling) {
+      console.log('Manage billing: `rzr auth portal`');
+    }
+    console.log(`Auth file: ${getAuthFilePath()}`);
+  }
+
+  if (subcommand === "login") {
+    const email = String(flags.email || positionals[0] || "").trim();
+    if (!email) {
+      throw new Error("missing email (use `rzr auth login you@example.com`)");
+    }
+
+    const requested = await requestRemoteMagicLink({
+      baseUrl,
+      email,
+      flow: "cli",
+    });
+
+    console.log(`Magic link requested for ${email}.`);
+    if (requested.delivery === "console") {
+      console.log("Delivery mode: console");
+    } else {
+      console.log(`Delivery mode: ${requested.delivery}`);
+    }
+
+    if (requested.verifyUrl) {
+      console.log("");
+      console.log("Open this magic link to approve the CLI:");
+      console.log(requested.verifyUrl);
+      if (!flags.noOpen && openUrl(requested.verifyUrl)) {
+        console.log("");
+        console.log("Opened the link in your browser.");
+      }
+    }
+
+    const deadline = Date.now() + (15 * 60 * 1000);
+    const pollToken = requested.pollToken;
+    if (!pollToken) {
+      throw new Error("gateway did not return a CLI poll token");
+    }
+
+    console.log("");
+    console.log("Waiting for approval…");
+
+    while (Date.now() < deadline) {
+      const poll = await pollRemoteCliAuth({
+        baseUrl,
+        pollToken,
+      });
+
+      if (poll.status === "complete" && poll.sessionToken) {
+        const account = await getRemoteAccount({
+          baseUrl,
+          accessToken: poll.sessionToken,
+        });
+
+        saveAuth({
+          accessToken: poll.sessionToken,
+          baseUrl,
+          user: account.user,
+          savedAt: new Date().toISOString(),
+        });
+
+        console.log("");
+        console.log(`Signed in as account ${account.user.id}.`);
+        console.log(`Stored CLI auth at ${getAuthFilePath()}`);
+        return;
+      }
+
+      if (poll.status === "consumed") {
+        throw new Error("CLI approval was already consumed; request a fresh magic link");
+      }
+
+      await sleep(Number(poll.pollIntervalMs || 2000));
+    }
+
+    throw new Error("timed out waiting for magic-link approval");
+  }
+
+  if (subcommand === "status") {
+    if (!savedAuth?.accessToken) {
+      console.log("Not signed in.");
+      console.log(`Auth file: ${getAuthFilePath()}`);
+      return;
+    }
+
+    const account = await syncAccount(savedAuth.accessToken);
+    printAccountStatus(account.user);
+    return;
+  }
+
+  if (subcommand === "checkout") {
+    const account = await requireAccount();
+    if (!account.user.billingActions?.canStartCheckout) {
+      throw new Error("checkout is not available for this account");
+    }
+
+    const session = await createRemoteCheckoutSession({
+      baseUrl,
+      accessToken: savedAuth.accessToken,
+    });
+    console.log(session.url);
+    if (openUrl(session.url)) {
+      console.log("Opened checkout in your browser.");
+    }
+    return;
+  }
+
+  if (subcommand === "portal") {
+    const account = await requireAccount();
+    if (!account.user.billingActions?.canManageBilling) {
+      throw new Error("billing portal is not available for this account");
+    }
+
+    const session = await createRemotePortalSession({
+      baseUrl,
+      accessToken: savedAuth.accessToken,
+    });
+    console.log(session.url);
+    if (openUrl(session.url)) {
+      console.log("Opened the billing portal in your browser.");
+    }
+    return;
+  }
+
+  if (subcommand === "reserve") {
+    await requireAccount();
+    const hostname = sanitizePublicSlug(positionals[0] || flags.name || "");
+    if (!hostname) {
+      throw new Error("missing hostname (use `rzr auth reserve my-name`)");
+    }
+
+    const payload = await reserveRemoteHostname({
+      baseUrl,
+      accessToken: savedAuth.accessToken,
+      hostname,
+    });
+    saveAuth({
+      ...savedAuth,
+      baseUrl,
+      user: payload.user,
+      savedAt: new Date().toISOString(),
+    });
+    console.log(`Reserved hostname: ${payload.hostname}`);
+    return;
+  }
+
+  if (subcommand === "unreserve") {
+    await requireAccount();
+    const payload = await releaseRemoteHostname({
+      baseUrl,
+      accessToken: savedAuth.accessToken,
+    });
+    saveAuth({
+      ...savedAuth,
+      baseUrl,
+      user: payload.user,
+      savedAt: new Date().toISOString(),
+    });
+    console.log("Released reserved hostname.");
+    return;
+  }
+
+  if (subcommand === "logout") {
+    if (!savedAuth?.accessToken) {
+      console.log("Already signed out.");
+      return;
+    }
+
+    await logoutRemoteAccount({
+      baseUrl,
+      accessToken: savedAuth.accessToken,
+    }).catch(() => {});
+
+    clearAuth();
+    console.log("Signed out.");
+    return;
+  }
+
+  throw new Error(`unknown auth command: ${subcommand}`);
 }
 
 async function holdOpen() {
@@ -370,6 +633,128 @@ async function promptForSigint(target) {
     stdin.resume();
     stdin.on("data", onData);
   });
+}
+
+function shellQuote(value) {
+  const text = String(value);
+  if (text.length === 0) {
+    return "''";
+  }
+  if (/^[a-zA-Z0-9._/:=-]+$/.test(text)) {
+    return text;
+  }
+  return `'${text.replaceAll("'", `'\\''`)}'`;
+}
+
+function buildResumeCommand(target, {
+  host,
+  port,
+  readonly,
+  tunnelEnabled,
+  noTunnel,
+  tunnelName,
+  password,
+  remoteBaseUrl,
+  remoteRegisterSecret,
+  nonInteractive,
+} = {}) {
+  const parts = ["rzr", "attach", shellQuote(target)];
+
+  if (host) {
+    parts.push("--host", shellQuote(host));
+  }
+
+  if (port) {
+    parts.push("--port", shellQuote(port));
+  }
+
+  if (readonly) {
+    parts.push("--readonly");
+  }
+
+  if (tunnelEnabled) {
+    parts.push("--tunnel");
+  } else if (noTunnel) {
+    parts.push("--no-tunnel");
+  }
+
+  if (tunnelName) {
+    parts.push("--tunnel-name", shellQuote(tunnelName));
+  }
+
+  if (password) {
+    parts.push("--password", shellQuote(password));
+  }
+
+  if (remoteBaseUrl) {
+    parts.push("--remote-base-url", shellQuote(remoteBaseUrl));
+  }
+
+  if (remoteRegisterSecret) {
+    parts.push("--remote-register-secret", shellQuote(remoteRegisterSecret));
+  }
+
+  if (nonInteractive) {
+    parts.push("--non-interactive");
+  }
+
+  return parts.join(" ");
+}
+
+async function promptForRestart(target) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    const restoreRawMode = typeof stdin.setRawMode === "function";
+    const wasRaw = Boolean(stdin.isRaw);
+
+    function cleanup() {
+      stdin.off("data", onData);
+      if (restoreRawMode) {
+        stdin.setRawMode(wasRaw);
+      }
+      stdout.write("\n");
+    }
+
+    function onData(chunk) {
+      const key = chunk.toString("utf8");
+
+      if (key === "y" || key === "Y") {
+        cleanup();
+        resolve(true);
+        return;
+      }
+
+      if (key === "\u0003" || key === "\u001b" || key === "n" || key === "N" || key === "\r" || key === "\n") {
+        cleanup();
+        resolve(false);
+      }
+    }
+
+    stdout.write(`\nForce restart tmux session "${target}"? This kills the running process. [y/N]: `);
+
+    if (restoreRawMode) {
+      stdin.setRawMode(true);
+    }
+
+    stdin.resume();
+    stdin.on("data", onData);
+  });
+}
+
+async function waitForGatewayReady(publicUrl, token, { maxAttempts = 30, intervalMs = 1000 } = {}) {
+  const url = `${publicUrl}${publicUrl.includes("?") ? "&" : "?"}token=${token}`;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetch(url, { method: "HEAD", redirect: "manual" });
+      if (res.status < 500) return;
+    } catch {}
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
 }
 
 function printServerBanner({ target, port, token, urls, tunnelUrl, tunnelProvider, passwordEnabled, tunnelName }) {
@@ -548,7 +933,10 @@ function createDashboardPrinter({
   port,
   token,
   urls,
+  getSnapshot,
   onEnterSession,
+  onRestartSession,
+  onPerformUpdate,
   passwordEnabled,
   tunnelName,
   tunnelEnabled,
@@ -589,16 +977,29 @@ function createDashboardPrinter({
     screenMode: "status",
     entryHealth: Object.create(null),
     connectedClients: 0,
+    activeStreams: [],
     requestCount: 0,
     lastActivityAt: 0,
     lastActivityLabel: "waiting for traffic",
     enteringSession: false,
+    restartingSession: false,
+    autoUpdate: loadConfig().autoUpdate ?? false,
+    updateStatus: null,
+    sessionInfo: typeof getSnapshot === "function" ? getSnapshot()?.info ?? null : null,
   };
   const stdin = process.stdin;
   const restoreRawMode = process.stdin.isTTY && typeof stdin.setRawMode === "function";
   const wasRaw = Boolean(stdin.isRaw);
   let listening = false;
   let healthcheckTimer = null;
+  let snapshotTimer = null;
+
+  function appendLogLine(line) {
+    state.logLines.push(line);
+    if (state.logLines.length > 250) {
+      state.logLines = state.logLines.slice(-250);
+    }
+  }
 
   function healthDot(entry) {
     return state.entryHealth[entry] ? `${green}●${reset}` : `${gray}·${reset}`;
@@ -625,10 +1026,6 @@ function createDashboardPrinter({
     const { connectEntries } = advertisedEntries();
 
     for (const entry of connectEntries) {
-      if (state.entryHealth[entry]) {
-        continue;
-      }
-
       const healthUrl = buildHealthcheckUrl(entry);
       if (!healthUrl) {
         continue;
@@ -639,13 +1036,35 @@ function createDashboardPrinter({
           method: "GET",
           signal: AbortSignal.timeout(1500),
         });
-        if (response.ok) {
-          state.entryHealth[entry] = true;
+        const healthy = response.ok;
+        if (state.entryHealth[entry] !== healthy) {
+          state.entryHealth[entry] = healthy;
           render();
         }
       } catch {
-        // keep the dot dim until a later probe succeeds
+        if (state.entryHealth[entry] !== false) {
+          state.entryHealth[entry] = false;
+          render();
+        }
       }
+    }
+  }
+
+  function markAllEntriesHealthy() {
+    for (const entry of Object.keys(state.entryHealth)) {
+      state.entryHealth[entry] = true;
+    }
+  }
+
+  function syncSnapshot() {
+    if (typeof getSnapshot !== "function") {
+      return;
+    }
+
+    const nextInfo = getSnapshot()?.info ?? null;
+    if (JSON.stringify(nextInfo) !== JSON.stringify(state.sessionInfo)) {
+      state.sessionInfo = nextInfo;
+      render();
     }
   }
 
@@ -667,7 +1086,7 @@ function createDashboardPrinter({
     void runHealthchecks();
     healthcheckTimer = setInterval(() => {
       void runHealthchecks();
-    }, 2500);
+    }, 30_000);
     healthcheckTimer.unref?.();
   }
 
@@ -753,19 +1172,34 @@ function createDashboardPrinter({
     const sections = state.screenMode === "status"
       ? [
           `${bold}v${reset} enter tmux`,
+          `${bold}r${reset} restart`,
+          `${bold}i${reset} clients`,
+          `${bold}u${reset} auto-update`,
           `${bold}q${reset} tunnel QR`,
           `${bold}?${reset} shortcuts`,
           `${bold}Ctrl+C${reset} exit menu`,
         ]
+      : state.screenMode === "clients"
+        ? [
+            `${bold}v${reset} enter tmux`,
+            `${bold}r${reset} restart`,
+            `${bold}i${reset} back to status`,
+            `${bold}q${reset} tunnel QR`,
+            `${bold}Esc${reset} return`,
+          ]
       : state.screenMode === "qr"
         ? [
             `${bold}v${reset} enter tmux`,
+            `${bold}r${reset} restart`,
+            `${bold}i${reset} clients`,
             `${bold}q${reset} back to status`,
             `${bold}?${reset} shortcuts`,
             `${bold}Esc${reset} return`,
           ]
         : [
             `${bold}v${reset} enter tmux`,
+            `${bold}r${reset} restart`,
+            `${bold}i${reset} clients`,
             `${bold}?${reset} close shortcuts`,
             `${bold}q${reset} tunnel QR`,
             `${bold}Esc${reset} return`,
@@ -799,6 +1233,95 @@ function createDashboardPrinter({
     }
   }
 
+  function sessionBadge() {
+    if (state.restartingSession) {
+      return `${yellow}[RESTARTING]${reset}`;
+    }
+    if (state.sessionInfo?.missing) {
+      return `${yellow}[SESSION MISSING]${reset}`;
+    }
+    if (state.sessionInfo?.dead) {
+      return `${red}[DEAD TERMINAL]${reset}`;
+    }
+    return "";
+  }
+
+  function terminalDot() {
+    if (state.restartingSession) {
+      return `${yellow}●${reset}`;
+    }
+    if (state.sessionInfo?.missing || state.sessionInfo?.dead) {
+      return `${red}●${reset}`;
+    }
+    return `${green}●${reset}`;
+  }
+
+  function terminalStatusLabel() {
+    if (state.restartingSession) {
+      return `${yellow}restarting${reset}`;
+    }
+    if (state.sessionInfo?.missing) {
+      return `${yellow}session missing${reset}`;
+    }
+    if (state.sessionInfo?.dead) {
+      const exitSuffix = typeof state.sessionInfo?.exitStatus === "number"
+        ? ` · exit ${state.sessionInfo.exitStatus}`
+        : "";
+      return `${red}dead terminal${reset}${exitSuffix}`;
+    }
+    return `${green}live${reset}${state.sessionInfo?.currentCommand ? ` · ${state.sessionInfo.currentCommand}` : ""}`;
+  }
+
+  async function restartSession() {
+    if (state.restartingSession || typeof onRestartSession !== "function") {
+      return;
+    }
+
+    syncSnapshot();
+    const deadOrMissing = Boolean(state.sessionInfo?.dead || state.sessionInfo?.missing);
+    let force = false;
+    let suspendedForPrompt = false;
+
+    if (!deadOrMissing) {
+      suspendedForPrompt = true;
+      suspendDashboard();
+      const confirmed = await promptForRestart(target);
+      if (!confirmed) {
+        resumeDashboard();
+        return;
+      }
+      force = true;
+    }
+
+    state.restartingSession = true;
+    appendLogLine(`${dim}${force ? "Force restarting terminal…" : "Restarting dead terminal…"}${reset}`);
+    state.lastActivityAt = Date.now();
+    state.lastActivityLabel = force ? "force restart requested" : "restart requested";
+
+    if (!suspendedForPrompt) {
+      render();
+    }
+
+    try {
+      await onRestartSession({ force });
+      appendLogLine(`${dim}${force ? "Force restart completed." : "Dead terminal restart completed."}${reset}`);
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = force ? "force restarted terminal" : "restarted dead terminal";
+    } catch (error) {
+      appendLogLine(`${red}Restart failed:${reset} ${error.message}`);
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = "restart failed";
+    } finally {
+      state.restartingSession = false;
+      syncSnapshot();
+      if (suspendedForPrompt) {
+        resumeDashboard();
+      } else {
+        render();
+      }
+    }
+  }
+
   function onData(chunk) {
     const key = chunk.toString("utf8");
 
@@ -819,6 +1342,36 @@ function createDashboardPrinter({
 
     if (key === "v" || key === "V") {
       void enterSession();
+      return;
+    }
+
+    if (key === "r" || key === "R") {
+      void restartSession();
+      return;
+    }
+
+    if (key === "i" || key === "I") {
+      state.screenMode = state.screenMode === "clients" ? "status" : "clients";
+      render();
+      return;
+    }
+
+    if (key === "u") {
+      state.autoUpdate = !state.autoUpdate;
+      saveConfig({ autoUpdate: state.autoUpdate });
+      appendLogLine(`${dim}Auto-update ${state.autoUpdate ? "enabled" : "disabled"}${reset}`);
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = `auto-update ${state.autoUpdate ? "enabled" : "disabled"}`;
+      render();
+      return;
+    }
+
+    if (key === "U") {
+      if (typeof onPerformUpdate === "function") {
+        state.updateStatus = "checking";
+        render();
+        void onPerformUpdate();
+      }
       return;
     }
 
@@ -884,9 +1437,9 @@ function createDashboardPrinter({
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}tunnel QR${reset}`,
         "",
-        `${bold}Session${reset}   ${target}`,
+        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Tunnel${reset}    ${tunnelLine}`,
-        `${bold}Keys${reset}      ${dim}v enters tmux · q toggles · esc/enter returns${reset}`,
+        `${bold}Keys${reset}      ${dim}v enters tmux · r restarts · q toggles · esc/enter returns${reset}`,
         "",
       ];
 
@@ -910,11 +1463,32 @@ function createDashboardPrinter({
           centerAnsi(`${dim}Press q, Esc, or Enter to return.${reset}`, innerWidth),
         ];
       }
+    } else if (state.screenMode === "clients") {
+      headerLines = [
+        `${bold}${cyan}rzr remote${reset}  ${dim}connected clients${reset}`,
+        "",
+        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
+        `${bold}Clients${reset}   ${state.connectedClients} connected`,
+        `${bold}Keys${reset}      ${dim}i toggles · esc/enter returns${reset}`,
+        "",
+      ];
+
+      if (state.activeStreams.length === 0) {
+        contentRows = [
+          "",
+          centerAnsi(`${dim}No clients connected.${reset}`, innerWidth),
+        ];
+      } else {
+        contentRows = state.activeStreams.map((s) => {
+          const ago = formatRelativeDuration(s.since);
+          return `  ${green}●${reset} ${s.ip || "unknown"}  ${dim}connected ${ago}${reset}`;
+        });
+      }
     } else if (state.screenMode === "help") {
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}shortcut keys${reset}`,
         "",
-        `${bold}Session${reset}   ${target}`,
+        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Tunnel${reset}    ${tunnelLine}`,
         "",
       ];
@@ -922,7 +1496,11 @@ function createDashboardPrinter({
       contentRows = [
         `${bold}${magenta}Navigation${reset}`,
         `  ${bold}v${reset}         attach this terminal to the tmux session`,
+        `  ${bold}r${reset}         restart if dead, or confirm a force restart if alive`,
         `  ${bold}q${reset}         toggle tunnel QR view`,
+        `  ${bold}i${reset}         toggle connected clients view`,
+        `  ${bold}u${reset}         toggle auto-update on/off`,
+        `  ${bold}U${reset}         force check + update now`,
         `  ${bold}?${reset}         toggle this shortcuts sheet`,
         `  ${bold}Esc${reset}       return to live bridge status`,
         `  ${bold}Enter${reset}     return to live bridge status`,
@@ -941,6 +1519,7 @@ function createDashboardPrinter({
       ];
     } else {
       const statusLines = [
+        `  ${terminalDot()} terminal    ${terminalStatusLabel()}`,
         `  ${tunnelDot(state.tunnelStatus)} tunnel      ${tunnelStatusLabel(state.tunnelStatus)}${state.tunnelNote ? ` · ${state.tunnelNote}` : ""}`,
         `  ${cyan}●${reset} exposure    ${exposure}`,
         `  ${cyan}●${reset} auth        ${passwordEnabled ? "password required" : "token only"}`,
@@ -948,12 +1527,13 @@ function createDashboardPrinter({
         `  ${cyan}●${reset} health      ${currentHealthSummary()}`,
         `  ${cyan}●${reset} activity    ${state.lastActivityLabel} · ${formatRelativeDuration(state.lastActivityAt)}`,
         `  ${cyan}●${reset} requests    ${state.requestCount} observed`,
+        `  ${state.autoUpdate ? `${green}●` : `${gray}●`}${reset} auto-update ${state.autoUpdate ? "enabled" : "disabled"}${state.updateStatus ? ` · ${state.updateStatus}` : ""}`,
       ];
 
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}live bridge status${reset}`,
         "",
-        `${bold}Session${reset}   ${target}`,
+        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Port${reset}      ${port}`,
         `${bold}Token${reset}     ${token}`,
         `${bold}Mode${reset}      ${mode}`,
@@ -994,6 +1574,9 @@ function createDashboardPrinter({
   }
 
   attachInput();
+  syncSnapshot();
+  snapshotTimer = setInterval(syncSnapshot, 250);
+  snapshotTimer.unref?.();
   syncHealthchecks();
 
   return {
@@ -1014,10 +1597,7 @@ function createDashboardPrinter({
       render();
     },
     addLog(event) {
-      state.logLines.push(formatRequestLog(event));
-      if (state.logLines.length > 250) {
-        state.logLines = state.logLines.slice(-250);
-      }
+      appendLogLine(formatRequestLog(event));
       state.connectedClients = event.connectedClients ?? state.connectedClients;
       state.requestCount += 1;
       state.lastActivityAt = Date.now();
@@ -1026,15 +1606,21 @@ function createDashboardPrinter({
         : event.kind === "stream-open"
           ? `SSE opened ${event.path}`
           : `SSE closed ${event.path}`;
+
+      if (event.kind === "stream-open") {
+        state.activeStreams.push({ ip: event.remoteAddress, since: Date.now() });
+      } else if (event.kind === "stream-close") {
+        const idx = state.activeStreams.findIndex((s) => s.ip === event.remoteAddress);
+        if (idx !== -1) state.activeStreams.splice(idx, 1);
+      }
+
+      markAllEntriesHealthy();
       render();
     },
     addMessage(message) {
-      state.logLines.push(`${dim}${message}${reset}`);
-      if (state.logLines.length > 250) {
-        state.logLines = state.logLines.slice(-250);
-      }
-       state.lastActivityAt = Date.now();
-       state.lastActivityLabel = message;
+      appendLogLine(`${dim}${message}${reset}`);
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = message;
       render();
     },
     suspend() {
@@ -1046,6 +1632,9 @@ function createDashboardPrinter({
     stop() {
       if (healthcheckTimer) {
         clearInterval(healthcheckTimer);
+      }
+      if (snapshotTimer) {
+        clearInterval(snapshotTimer);
       }
       detachInput();
       process.stdout.write("\x1b[?25h");
@@ -1061,6 +1650,101 @@ function printUpdateNotice(update) {
   console.log("");
 }
 
+async function performHotSwap({
+  target,
+  server,
+  tunnel,
+  flags,
+  remoteGateway,
+  registeredSlug,
+  token,
+  dashboard,
+}) {
+  if (!acquireUpdateLock()) {
+    dashboard?.addMessage("Update already in progress.");
+    return { success: false, error: "update lock held" };
+  }
+
+  try {
+    server.setUpdateInfo({
+      ...server.getUpdateInfo(),
+      state: "installing",
+    });
+    dashboard?.addMessage("Installing update...");
+
+    const method = detectLaunchMethod();
+    const result = await performUpdate({
+      packageName: PACKAGE_JSON.name,
+      method,
+    });
+
+    if (!result.success) {
+      server.setUpdateInfo({
+        ...server.getUpdateInfo(),
+        state: "available",
+      });
+      dashboard?.addMessage(`Update failed: ${result.error}`);
+      if (result.stderr) {
+        dashboard?.addMessage(result.stderr);
+      }
+      return result;
+    }
+
+    cleanupStaleHandoff();
+
+    const handoffPath = serializeHandoff({
+      version: VERSION,
+      session: target,
+      port: server.port,
+      host: server.host,
+      token,
+      password: flags.password || "",
+      readonly: flags.readonly,
+      tunnelPid: tunnel?.pid ?? null,
+      tunnelUrl: tunnel?.publicUrl ?? null,
+      gateway: remoteGateway.enabled
+        ? {
+            baseUrl: remoteGateway.baseUrl,
+            registerSecret: remoteGateway.registerSecret,
+            slug: registeredSlug,
+            ownerAuthToken: loadSavedAuth()?.accessToken || "",
+          }
+        : null,
+      flags: {
+        tunnelName: flags.tunnelName || "",
+        tunnelEnabled: Boolean(flags.tunnel || remoteGateway.autoTunnel),
+        nonInteractive: flags.nonInteractive,
+      },
+    }, token);
+
+    dashboard?.addMessage("Spawning updated process...");
+
+    const binPath = process.argv[1];
+    const newProcess = spawn(binPath, ["attach", target, "--handoff", handoffPath], {
+      stdio: "ignore",
+      detached: true,
+      env: process.env,
+    });
+    newProcess.unref();
+
+    const ready = await waitForHandoffSentinel(newProcess.pid, 5000);
+
+    if (ready) {
+      dashboard?.addMessage("Hot-swap complete. Exiting old process.");
+      process.exit(0);
+    } else {
+      server.setUpdateInfo({
+        ...server.getUpdateInfo(),
+        state: "available",
+      });
+      dashboard?.addMessage("Hot-swap timed out — new process did not become ready. Continuing.");
+      return { success: false, error: "handoff sentinel timeout" };
+    }
+  } finally {
+    releaseUpdateLock();
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const command = argv[0];
@@ -1072,6 +1756,40 @@ async function main() {
 
   if (command === "--version" || command === "-v") {
     console.log(VERSION);
+    return;
+  }
+
+  if (command === "auth") {
+    await handleAuthCommand(argv.slice(1));
+    return;
+  }
+
+  if (command === "push") {
+    const { flags } = parseFlags(argv.slice(1));
+    if (!flags.developerMode) {
+      console.error("rzr push requires --developer-mode flag");
+      process.exit(1);
+    }
+    const savedAuth = loadSavedAuth();
+    if (!savedAuth?.accessToken) {
+      console.error("Not logged in. Run: rzr auth login");
+      process.exit(1);
+    }
+    const remoteGateway = getRemoteGatewayConfig({ flags });
+    const title = flags.title || "rzr test";
+    const body = flags.body || "Test push from CLI";
+    try {
+      const result = await sendTestPush({
+        baseUrl: remoteGateway.baseUrl,
+        accessToken: savedAuth.accessToken,
+        title,
+        body,
+      });
+      console.log(`Push sent to ${result.devicesReached} device(s)`);
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
     return;
   }
 
@@ -1129,6 +1847,181 @@ async function main() {
     });
   } else if (command === "attach") {
     target = positionals[0];
+
+    if (flags.handoff) {
+      const handoff = consumeHandoff(flags.handoff, token);
+      target = target || handoff.session;
+
+      if (!(await hasSession(target))) {
+        throw new Error(`tmux session not found: ${target}`);
+      }
+
+      const sessionRuntime = createTmuxSessionRuntime({ target });
+
+      let adoptedTunnel = null;
+      if (handoff.tunnelPid) {
+        try {
+          adoptedTunnel = adoptTunnelProcess(handoff.tunnelPid, "cloudflared", handoff.tunnelUrl);
+        } catch {
+          // tunnel PID stale — will start fresh if needed
+        }
+      }
+
+      let server;
+      const createServerWithRetry = async (reusePort) => {
+        try {
+          return await createRemoteServer({
+            target,
+            host: handoff.host || "0.0.0.0",
+            port: handoff.port,
+            incrementPortOnConflict: false,
+            token: handoff.token,
+            password: handoff.password || "",
+            readonly: handoff.readonly,
+            sessionRuntime,
+            restartSession: async ({ force }) => {
+              await respawnSession(target, { killExisting: force });
+            },
+            idleTimeoutMs: handoff.flags?.tunnelEnabled ? DEFAULT_IDLE_TIMEOUT_MS : 0,
+            reusePort,
+          });
+        } catch (error) {
+          if (error?.code === "EADDRINUSE" && reusePort) {
+            return null;
+          }
+          throw error;
+        }
+      };
+
+      server = await createServerWithRetry(true);
+      if (!server) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await sleep(200);
+          server = await createServerWithRetry(false);
+          if (server) break;
+        }
+        if (!server) {
+          throw new Error(`port ${handoff.port} still in use after retries`);
+        }
+      }
+
+      server.setUpdateInfo(null);
+
+      if (handoff.gateway) {
+        try {
+          const savedAuth = loadSavedAuth();
+          await registerRemoteSession({
+            baseUrl: handoff.gateway.baseUrl,
+            registerSecret: handoff.gateway.registerSecret,
+            slug: handoff.gateway.slug,
+            requestedName: handoff.flags?.tunnelName || "",
+            upstreamUrl: handoff.tunnelUrl,
+            target,
+            provider: "cloudflared",
+            sessionToken: handoff.token,
+            ownerAuthToken: savedAuth?.accessToken || handoff.gateway.ownerAuthToken || "",
+            idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+          });
+        } catch (error) {
+          console.error(`Gateway re-registration warning: ${error.message}`);
+        }
+      }
+
+      writeHandoffSentinel(process.pid);
+
+      const dashboard = createDashboardPrinter({
+        target,
+        port: server.port,
+        token: handoff.token,
+        urls: server.urls,
+        getSnapshot: server.snapshot,
+        onEnterSession: async () => {
+          await attachSession(target);
+        },
+        onRestartSession: async ({ force }) => {
+          await server.restartSession({ force });
+        },
+        onPerformUpdate: async () => {
+          const update = await checkForUpdate({
+            packageName: PACKAGE_JSON.name,
+            currentVersion: VERSION,
+          });
+          if (!update) {
+            dashboard?.addMessage("Already up to date.");
+            return;
+          }
+          server.setUpdateInfo({
+            available: true,
+            current: update.currentVersion,
+            latest: update.latestVersion,
+            state: "available",
+          });
+          await performHotSwap({
+            target,
+            server,
+            tunnel: adoptedTunnel,
+            flags: { ...flags, ...handoff.flags },
+            remoteGateway: handoff.gateway
+              ? { enabled: true, baseUrl: handoff.gateway.baseUrl, registerSecret: handoff.gateway.registerSecret, autoTunnel: true }
+              : { enabled: false },
+            registeredSlug: handoff.gateway?.slug || "",
+            token: handoff.token,
+            dashboard,
+          });
+        },
+        passwordEnabled: Boolean(handoff.password),
+        tunnelName: handoff.flags?.tunnelName || "",
+        tunnelEnabled: Boolean(handoff.flags?.tunnelEnabled),
+      });
+
+      if (adoptedTunnel) {
+        dashboard.setTunnel({
+          status: "connected",
+          provider: "cloudflared",
+          url: handoff.tunnelUrl,
+          note: "adopted tunnel",
+        });
+      }
+
+      dashboard.addMessage("Hot-swap complete — resumed from handoff.");
+
+      let registeredSlug = handoff.gateway?.slug || "";
+      let remoteHeartbeatTimer = null;
+
+      if (registeredSlug && handoff.gateway) {
+        const sendHeartbeat = async () => {
+          await sendRemoteSessionHeartbeat({
+            baseUrl: handoff.gateway.baseUrl,
+            registerSecret: handoff.gateway.registerSecret,
+            slug: registeredSlug,
+            status: server.snapshot()?.status ?? null,
+            heartbeatTimeoutMs: DEFAULT_REMOTE_HEARTBEAT_TIMEOUT_MS,
+          }).catch(() => {});
+        };
+
+        void sendHeartbeat();
+        remoteHeartbeatTimer = setInterval(sendHeartbeat, 10_000);
+        remoteHeartbeatTimer.unref?.();
+      }
+
+      process.on("SIGINT", async () => {
+        if (remoteHeartbeatTimer) clearInterval(remoteHeartbeatTimer);
+        if (adoptedTunnel) await adoptedTunnel.close();
+        await server.close();
+        dashboard.stop();
+        process.exit(0);
+      });
+      process.on("SIGTERM", async () => {
+        if (remoteHeartbeatTimer) clearInterval(remoteHeartbeatTimer);
+        await server.close();
+        dashboard.stop();
+        process.exit(0);
+      });
+
+      await holdOpen();
+      return;
+    }
+
     if (!target) {
       throw new Error("missing tmux session name");
     }
@@ -1143,6 +2036,7 @@ async function main() {
   let server;
   let shutdown = async () => {};
   let dashboard = null;
+  const sessionRuntime = createTmuxSessionRuntime({ target });
 
   try {
     server = await createRemoteServer({
@@ -1153,6 +2047,10 @@ async function main() {
       token,
       password: flags.password || "",
       readonly: flags.readonly,
+      sessionRuntime,
+      restartSession: async ({ force }) => {
+        await respawnSession(target, { killExisting: force });
+      },
       idleTimeoutMs: tunnelEnabled ? DEFAULT_IDLE_TIMEOUT_MS : 0,
       onIdle: async ({ idleForMs }) => {
         dashboard?.suspend();
@@ -1188,6 +2086,10 @@ async function main() {
       token,
       password: flags.password || "",
       readonly: flags.readonly,
+      sessionRuntime,
+      restartSession: async ({ force }) => {
+        await respawnSession(target, { killExisting: force });
+      },
       idleTimeoutMs: tunnelEnabled ? DEFAULT_IDLE_TIMEOUT_MS : 0,
       onIdle: async ({ idleForMs }) => {
         dashboard?.suspend();
@@ -1208,8 +2110,38 @@ async function main() {
     port: server.port,
     token,
     urls: server.urls,
+    getSnapshot: server.snapshot,
     onEnterSession: async () => {
       await attachSession(target);
+    },
+    onRestartSession: async ({ force }) => {
+      await server.restartSession({ force });
+    },
+    onPerformUpdate: async () => {
+      const update = await checkForUpdate({
+        packageName: PACKAGE_JSON.name,
+        currentVersion: VERSION,
+      });
+      if (!update) {
+        dashboard?.addMessage("Already up to date.");
+        return;
+      }
+      server.setUpdateInfo({
+        available: true,
+        current: update.currentVersion,
+        latest: update.latestVersion,
+        state: "available",
+      });
+      await performHotSwap({
+        target,
+        server,
+        tunnel,
+        flags,
+        remoteGateway,
+        registeredSlug,
+        token,
+        dashboard,
+      });
     },
     passwordEnabled: Boolean(flags.password),
     tunnelName: flags.tunnelName || "",
@@ -1220,14 +2152,45 @@ async function main() {
     note: tunnelEnabled ? "starting public tunnel" : "local-only",
   });
 
+  const initialConfig = loadConfig();
+  if (!("autoUpdate" in initialConfig)) {
+    dashboard.addMessage("Tip: press u to toggle auto-update");
+  }
+
   let tunnel = null;
   let tunnelUrl = null;
   let tunnelProvider = null;
   let registeredSlug = "";
+  let remoteHeartbeatTimer = null;
+
+  async function sendGatewayHeartbeat() {
+    if (!registeredSlug || !remoteGateway.enabled) {
+      return;
+    }
+
+    await sendRemoteSessionHeartbeat({
+      baseUrl: remoteGateway.baseUrl,
+      registerSecret: remoteGateway.registerSecret,
+      slug: registeredSlug,
+      status: server.snapshot()?.status ?? null,
+      heartbeatTimeoutMs: DEFAULT_REMOTE_HEARTBEAT_TIMEOUT_MS,
+    });
+  }
+
+  function startGatewayHeartbeatLoop() {
+    if (!registeredSlug || !remoteGateway.enabled || remoteHeartbeatTimer) {
+      return;
+    }
+
+    void sendGatewayHeartbeat().catch(() => {});
+    remoteHeartbeatTimer = setInterval(() => {
+      void sendGatewayHeartbeat().catch(() => {});
+    }, 10_000);
+    remoteHeartbeatTimer.unref?.();
+  }
 
   if (tunnelEnabled) {
-    const tunnelTools = getTunnelToolStatus();
-    if (!tunnelTools.cloudflared && !tunnelTools.ngrok && !tunnelTools.npx) {
+    if (!commandExists("cloudflared")) {
       dashboard.stop();
       printTunnelInstallHelp();
       process.exit(1);
@@ -1242,16 +2205,23 @@ async function main() {
       tunnel = await startBestTunnel({
         localUrl: `http://127.0.0.1:${server.port}`,
         port: server.port,
-        tunnelName: flags.tunnelName || "",
+        tunnelName: remoteGateway.enabled ? "" : (flags.tunnelName || ""),
       });
       tunnelUrl = await tunnel.ready;
       tunnelProvider = tunnel.provider;
-      dashboard.setTunnel({
-        status: "connected",
-        provider: tunnel.provider,
-        url: tunnelUrl,
-        note: `${tunnel.provider} connected`,
-      });
+      if (!remoteGateway.enabled) {
+        dashboard.setTunnel({
+          status: "connected",
+          provider: tunnel.provider,
+          url: tunnelUrl,
+          note: `${tunnel.provider} connected`,
+        });
+      } else {
+        dashboard.setTunnel({
+          status: "connecting",
+          note: "registering with gateway",
+        });
+      }
 
       if (tunnel.closed) {
         void tunnel.closed.then(() => {
@@ -1267,23 +2237,35 @@ async function main() {
 
       if (remoteGateway.enabled) {
         try {
-          registeredSlug = buildPublicSlug({
+          const savedAuth = loadSavedAuth();
+          const requestedGatewayName = flags.tunnelName ? sanitizePublicSlug(flags.tunnelName) : "";
+          registeredSlug = requestedGatewayName || buildPublicSlug({
             target,
-            tunnelName: flags.tunnelName || "",
+            tunnelName: "",
           });
 
           const remoteSession = await registerRemoteSession({
             baseUrl: remoteGateway.baseUrl,
             registerSecret: remoteGateway.registerSecret,
             slug: registeredSlug,
+            requestedName: flags.tunnelName || "",
             upstreamUrl: tunnelUrl,
             target,
             provider: tunnel.provider,
+            sessionToken: token,
+            ownerAuthToken: savedAuth?.accessToken || process.env.RZR_REMOTE_OWNER_AUTH_TOKEN || "",
             idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
           });
 
           tunnelUrl = remoteSession.publicUrl;
           tunnelProvider = `gateway via ${tunnel.provider}`;
+          startGatewayHeartbeatLoop();
+
+          dashboard.setTunnel({
+            status: "connecting",
+            note: "waiting for gateway to become reachable",
+          });
+          await waitForGatewayReady(tunnelUrl, token);
           dashboard.setTunnel({
             status: "connected",
             provider: tunnelProvider,
@@ -1291,6 +2273,10 @@ async function main() {
             note: "gateway connected",
           });
         } catch (error) {
+          if (flags.tunnelName) {
+            throw new Error(`named gateway registration failed: ${error.message}`);
+          }
+
           dashboard.setTunnel({
             status: "troubled",
             provider: tunnel.provider,
@@ -1308,28 +2294,56 @@ async function main() {
         note: "public tunnel failed",
       });
       dashboard.addMessage(`Tunnel startup failed: ${error.message}`);
-      if (!tunnelTools.cloudflared && !tunnelTools.ngrok && !tunnelTools.npx) {
-        dashboard.stop();
-        printTunnelInstallHelp();
-        process.exit(1);
-      }
-
       dashboard.stop();
       throw error;
     }
   }
 
   void updateCheck
-    .then((update) => {
-      if (update) {
-        dashboard?.addMessage(`Update available: rzr ${update.currentVersion} → ${update.latestVersion}`);
-        dashboard?.addMessage(update.command);
+    .then(async (update) => {
+      if (!update) {
+        return;
+      }
+
+      server.setUpdateInfo({
+        available: true,
+        current: update.currentVersion,
+        latest: update.latestVersion,
+        state: "available",
+      });
+
+      dashboard?.addMessage(`Update available: rzr ${update.currentVersion} → ${update.latestVersion}`);
+
+      const config = loadConfig();
+      if (config.autoUpdate) {
+        await performHotSwap({
+          target,
+          server,
+          tunnel,
+          flags,
+          remoteGateway,
+          registeredSlug,
+          token,
+          dashboard,
+        });
       }
     })
     .catch(() => {});
 
   let shuttingDown = false;
   let promptingForExit = false;
+  const resumeCommand = buildResumeCommand(target, {
+    host: flags.host,
+    port: server.port,
+    readonly: flags.readonly,
+    tunnelEnabled,
+    noTunnel: flags.noTunnel,
+    tunnelName: flags.tunnelName,
+    password: flags.password,
+    remoteBaseUrl: flags.remoteBaseUrl,
+    remoteRegisterSecret: flags.remoteRegisterSecret,
+    nonInteractive: flags.nonInteractive,
+  });
 
   shutdown = async function shutdown({ killTarget = false, exitCode = 0 } = {}) {
     if (shuttingDown) {
@@ -1343,12 +2357,19 @@ async function main() {
         slug: registeredSlug,
       }).catch(() => {});
     }
+    if (remoteHeartbeatTimer) {
+      clearInterval(remoteHeartbeatTimer);
+      remoteHeartbeatTimer = null;
+    }
     if (tunnel) {
       await tunnel.close();
     }
     await server.close();
     if (killTarget) {
       await killSession(target);
+    } else {
+      console.log("");
+      console.log(`Resume this session: ${resumeCommand}`);
     }
     dashboard?.stop();
     process.exit(exitCode);

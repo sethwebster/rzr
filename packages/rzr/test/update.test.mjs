@@ -5,6 +5,7 @@ import {
   buildUpdateCommand,
   checkForUpdate,
   compareVersions,
+  detectLaunchMethod,
   isUpdateCheckEnabled,
 } from "../src/update.mjs";
 
@@ -26,6 +27,15 @@ test("isUpdateCheckEnabled honors the opt-out env flag", () => {
 
 test("buildUpdateCommand returns the npm update command", () => {
   assert.equal(buildUpdateCommand("@sethwebster/rzr"), "npm install -g @sethwebster/rzr@latest");
+  assert.equal(buildUpdateCommand("@sethwebster/rzr", "global"), "npm install -g @sethwebster/rzr@latest");
+  assert.equal(buildUpdateCommand("@sethwebster/rzr", "npx"), "npx @sethwebster/rzr@latest --version");
+});
+
+test("detectLaunchMethod identifies npx vs global installs", () => {
+  assert.equal(detectLaunchMethod(["node", "/usr/local/bin/rzr"]), "global");
+  assert.equal(detectLaunchMethod(["node", "/home/user/.npm/_npx/abc/node_modules/.bin/rzr"]), "npx");
+  assert.equal(detectLaunchMethod(["node", "/tmp/.npx/rzr"]), "npx");
+  assert.equal(detectLaunchMethod(["node", ""]), "global");
 });
 
 test("checkForUpdate returns update metadata when a newer version exists", async () => {

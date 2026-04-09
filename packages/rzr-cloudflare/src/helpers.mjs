@@ -1,4 +1,5 @@
 export const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 45 * 1000;
 
 export function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -33,6 +34,15 @@ export function clampIdleTimeoutMs(value) {
   return Math.min(parsed, DEFAULT_IDLE_TIMEOUT_MS);
 }
 
+export function clampHeartbeatTimeoutMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_HEARTBEAT_TIMEOUT_MS;
+  }
+
+  return Math.min(Math.max(parsed, 5_000), 5 * 60 * 1000);
+}
+
 export function parseSessionHostname(hostname, baseUrl) {
   const baseHost = new URL(String(baseUrl || "")).hostname;
   const normalizedHost = String(hostname || "").toLowerCase();
@@ -65,9 +75,53 @@ export function validateUpstreamUrl(value) {
 }
 
 export function isExpired(record, now = Date.now()) {
-  if (!record || !record.lastSeenAt) {
+  const lastActivityAt = Math.max(
+    Number(record?.lastSeenAt || 0),
+    Number(record?.lastHeartbeatAt || 0),
+  );
+  if (!record || !lastActivityAt) {
     return true;
   }
 
-  return now - record.lastSeenAt >= clampIdleTimeoutMs(record.idleTimeoutMs);
+  return now - lastActivityAt >= clampIdleTimeoutMs(record.idleTimeoutMs);
+}
+
+export function getSessionPresence(record, now = Date.now()) {
+  if (!record) {
+    return {
+      state: "offline",
+      lastHeartbeatAt: null,
+      heartbeatTimeoutMs: clampHeartbeatTimeoutMs(),
+      latestStatus: null,
+    };
+  }
+
+  const heartbeatTimeoutMs = clampHeartbeatTimeoutMs(record.heartbeatTimeoutMs);
+  const lastHeartbeatAt = Number(record.lastHeartbeatAt || 0);
+  const latestStatus = record.latestStatus || null;
+
+  if (!lastHeartbeatAt) {
+    return {
+      state: latestStatus ? "degraded" : "unknown",
+      lastHeartbeatAt: null,
+      heartbeatTimeoutMs,
+      latestStatus,
+    };
+  }
+
+  if (now - lastHeartbeatAt < heartbeatTimeoutMs) {
+    return {
+      state: "online",
+      lastHeartbeatAt: new Date(lastHeartbeatAt).toISOString(),
+      heartbeatTimeoutMs,
+      latestStatus,
+    };
+  }
+
+  return {
+    state: latestStatus ? "degraded" : "offline",
+    lastHeartbeatAt: new Date(lastHeartbeatAt).toISOString(),
+    heartbeatTimeoutMs,
+    latestStatus,
+  };
 }

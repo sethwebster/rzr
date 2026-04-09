@@ -115,7 +115,12 @@ export function describeLaunchFailure({ exists, info, paneOutput }) {
 
 async function verifySessionLaunch(
   name,
-  { timeoutMs = 2200, pollIntervalMs = 75, stableDurationMs = 1200 } = {},
+  {
+    timeoutMs = 2200,
+    pollIntervalMs = 75,
+    stableDurationMs = 1200,
+    killOnFailure = false,
+  } = {},
 ) {
   const deadline = Date.now() + timeoutMs;
   let lastExists = false;
@@ -140,7 +145,9 @@ async function verifySessionLaunch(
           paneOutput: lastPaneOutput,
         });
 
-        await killSession(name);
+        if (killOnFailure) {
+          await killSession(name);
+        }
         throw new Error(failure || "wrapped command exited during launch");
       }
 
@@ -168,7 +175,9 @@ async function verifySessionLaunch(
     return;
   }
 
-  await killSession(name);
+  if (killOnFailure) {
+    await killSession(name);
+  }
   throw new Error(failure);
 }
 
@@ -193,7 +202,16 @@ export async function createSession({ name, cwd, command, cols = 120, rows = 40 
   await run("tmux", args);
   await run("tmux", ["set-option", "-t", name, "history-limit", "50000"]);
   await run("tmux", ["set-option", "-t", name, "remain-on-exit", "on"]);
-  await verifySessionLaunch(name);
+  await verifySessionLaunch(name, { killOnFailure: true });
+}
+
+function rewordLaunchFailureForRestart(message) {
+  return String(message || "wrapped command exited after restart")
+    .replace(
+      "during launch before the tmux session became available",
+      "after restart before the tmux session became available",
+    )
+    .replace("during launch", "after restart");
 }
 
 export async function capturePane(target, lines = 2000) {
@@ -297,6 +315,22 @@ export async function attachSession(target) {
 
 export async function resizeSession(target, cols, rows) {
   await run("tmux", ["resize-window", "-t", target, "-x", String(cols), "-y", String(rows)]);
+}
+
+export async function respawnSession(target, { killExisting = false } = {}) {
+  const args = ["respawn-pane"];
+  if (killExisting) {
+    args.push("-k");
+  }
+  args.push("-t", target);
+
+  await run("tmux", args);
+
+  try {
+    await verifySessionLaunch(target);
+  } catch (error) {
+    throw new Error(rewordLaunchFailureForRestart(error?.message));
+  }
 }
 
 export async function killSession(target) {

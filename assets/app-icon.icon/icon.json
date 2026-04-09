@@ -17,6 +17,7 @@
   },
   "groups" : [
     {
+      "blur-material" : null,
       "layers" : [
         {
           "fill" : {
@@ -30,7 +31,8 @@
             }
           ],
           "image-name" : "logo-white.png",
-          "name" : "logo-white"
+          "name" : "logo-white",
+          "opacity" : 1
         }
       ],
       "shadow" : {

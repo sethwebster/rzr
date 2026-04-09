@@ -1,6 +1,7 @@
+import { extractGatewaySlug } from '@/lib/account';
 import { type SessionAccent, type TerminalSession } from '@/types/session';
 
-export function cx(...parts: Array<string | false | null | undefined>) {
+export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ');
 }
 
@@ -11,7 +12,11 @@ export function getParamValue(value: string | string[] | undefined) {
   return value;
 }
 
-export function ensureRemoteUrl(rawValue: string) {
+export function ensureRemoteUrl(rawValue: string | null | undefined) {
+  if (typeof rawValue !== 'string') {
+    throw new Error('Add a session URL first.');
+  }
+
   const raw = rawValue.trim();
   if (!raw) {
     throw new Error('Add a session URL first.');
@@ -41,7 +46,16 @@ export function normalizeUrlWithToken(urlValue: string, token?: string) {
   return url.toString();
 }
 
-export function createSessionId(url: string) {
+export function createSessionId(url: string | null | undefined) {
+  if (typeof url !== 'string') {
+    throw new Error('Session URL is missing.');
+  }
+
+  const gatewaySlug = extractGatewaySlug(url);
+  if (gatewaySlug) {
+    return `gateway-${gatewaySlug.toLowerCase()}`;
+  }
+
   return url
     .toLowerCase()
     .replace(/^https?:\/\//, '')
@@ -54,6 +68,8 @@ export function buildSession(input: {
   label?: string;
   url: string;
   token?: string;
+  authToken?: string;
+  liveState?: TerminalSession['liveState'];
   passwordHint?: string;
   accent?: SessionAccent;
   source?: TerminalSession['source'];
@@ -63,11 +79,17 @@ export function buildSession(input: {
     id: createSessionId(url),
     label: input.label?.trim() || 'Live bridge',
     url,
+    authToken: input.authToken?.trim() || undefined,
     accent: input.accent ?? 'cyan',
+    liveState: input.liveState,
     passwordHint: input.passwordHint?.trim() || undefined,
     lastConnectedAt: new Date().toISOString(),
     source: input.source ?? 'manual',
   };
+}
+
+export function stripGatewaySuffix(value: string) {
+  return String(value).replace(/\.(?:free|pro)\.rzr\.live$/i, '');
 }
 
 export function buildConnectHref(

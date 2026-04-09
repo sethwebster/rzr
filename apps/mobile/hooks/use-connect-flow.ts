@@ -8,7 +8,8 @@ import {
   verifyConnection,
 } from '@/lib/connect-flow/connection';
 import { type ConnectDraft } from '@/lib/connect-flow/types';
-import { useSession } from '@/providers/session-provider';
+import { useActiveSession, useRawSessionState, useSessionActions } from '@/hooks/use-session-data';
+import type { TerminalSession } from '@/types/session';
 
 const DEFAULT_DRAFT: ConnectDraft = {
   label: 'Night Shift',
@@ -17,7 +18,7 @@ const DEFAULT_DRAFT: ConnectDraft = {
   accent: 'cyan',
 };
 
-function getInitialDraft(activeSession: ReturnType<typeof useSession>['activeSession']): ConnectDraft {
+function getInitialDraft(activeSession: TerminalSession | null): ConnectDraft {
   if (!activeSession) return DEFAULT_DRAFT;
   return {
     label: activeSession.label,
@@ -28,8 +29,10 @@ function getInitialDraft(activeSession: ReturnType<typeof useSession>['activeSes
 }
 
 export function useConnectFlow() {
-  const session = useSession();
-  const { activeSession, connectSession, hydrated, sessions } = session;
+  const { sessions, phase } = useRawSessionState();
+  const activeSession = useActiveSession();
+  const { connectSession } = useSessionActions();
+  const hydrated = phase === 'ready';
   const storeRef = useRef<ConnectFlowStore | null>(null);
   const readyFiredRef = useRef(false);
   const verifyingNonceRef = useRef<number | null>(null);
@@ -62,8 +65,8 @@ export function useConnectFlow() {
 
     verifyingNonceRef.current = nonce;
     verifyConnection(pending)
-      .then(() => {
-        store.send({ type: 'CONNECTION_READY', nonce });
+      .then((result) => {
+        store.send({ type: 'CONNECTION_READY', nonce, requiresPassword: result.passwordRequired });
       })
       .catch((error: unknown) => {
         store.send({
@@ -108,6 +111,7 @@ export function useConnectFlow() {
       token: resolved.token,
       passwordHint: resolved.passwordHint,
       accent: resolved.accent,
+      liveState: resolved.requiresPassword ? 'locked' : undefined,
       source: resolved.source,
     });
     pendingNavigationSessionIdRef.current = nextSession.id;
@@ -127,7 +131,10 @@ export function useConnectFlow() {
     if (activeSession?.id !== pendingSessionId) return;
 
     pendingNavigationSessionIdRef.current = null;
-    router.replace('/(tabs)/terminal');
+    router.replace({
+      pathname: '/(tabs)/sessions/[id]',
+      params: { id: pendingSessionId },
+    });
     setTimeout(() => {
       store.send({ type: 'RESET' });
     }, 0);

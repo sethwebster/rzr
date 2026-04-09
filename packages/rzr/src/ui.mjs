@@ -6,7 +6,19 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
+function renderXtermAssetTags(renderer) {
+  if (renderer !== "xterm") {
+    return "";
+  }
+
+  return `
+    <link rel="stylesheet" href="/assets/xterm.css" />
+    <script src="/assets/xterm.js"></script>
+    <script src="/assets/xterm-addon-fit.js"></script>
+  `;
+}
+
+export function renderIndexHtml({ sessionName, readonly, passwordRequired, renderer = "classic" }) {
   const title = escapeHtml(sessionName);
 
   return `<!doctype html>
@@ -18,21 +30,36 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <title>rzr · ${title}</title>
+    ${renderXtermAssetTags(renderer)}
     <script>
       (() => {
         const params = new URLSearchParams(window.location.search);
         const value = (params.get("chrome") || params.get("ui") || params.get("view") || "").toLowerCase();
+        const renderer = (params.get("renderer") || ${JSON.stringify(renderer)} || "").toLowerCase();
+        const preview = value === "preview";
         const noChrome = value === "0"
           || value === "false"
           || value === "off"
           || value === "minimal"
           || value === "screen"
+          || value === "preview"
           || value === "observe"
           || params.get("nochrome") === "1";
 
         if (noChrome) {
           document.documentElement.classList.add("no-chrome");
         }
+        if (preview) {
+          document.documentElement.classList.add("preview");
+        }
+        if (renderer === "xterm") {
+          document.documentElement.classList.add("xterm-renderer");
+        }
+        if (renderer === "mobile-scroll") {
+          document.documentElement.classList.add("mobile-scroll-renderer");
+        }
+
+        window.__rzrViewConfig = { noChrome, preview, renderer };
       })();
     </script>
     <style>
@@ -241,6 +268,129 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           calc(10px + env(safe-area-inset-bottom))
           calc(12px + env(safe-area-inset-left));
         background: #05070c;
+      }
+
+      .classic-screen {
+        display: block;
+      }
+
+      .xterm-screen {
+        display: none;
+        overflow: hidden;
+      }
+
+      .xterm-screen #terminal {
+        width: 100%;
+        height: 100%;
+      }
+
+      .xterm-selection-toolbar {
+        position: absolute;
+        right: calc(12px + env(safe-area-inset-right));
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        z-index: 4;
+        display: none !important;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(8, 12, 20, 0.92);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(18px);
+      }
+
+      .xterm-selection-toolbar button {
+        min-height: 32px;
+        padding: 0 12px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(232, 238, 246, 0.92);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .xterm-selection-toolbar button[data-active="true"] {
+        border-color: rgba(124, 246, 255, 0.36);
+        background: rgba(124, 246, 255, 0.12);
+        color: #7cf6ff;
+      }
+
+      html.xterm-renderer .classic-screen {
+        display: none;
+      }
+
+      html.xterm-renderer .header {
+        display: none;
+      }
+
+      html.xterm-renderer .xterm-screen {
+        display: block;
+        padding: 0;
+        min-height: 0;
+      }
+
+      html.xterm-renderer .controls {
+        display: none;
+      }
+
+      html.xterm-renderer .screen-shell {
+        background: #05070c;
+      }
+
+      html.xterm-renderer .screen-wrap {
+        background: #05070c;
+      }
+
+      html.xterm-renderer .xterm-screen #terminal,
+      html.xterm-renderer .xterm-screen #terminal .xterm,
+      html.xterm-renderer .xterm-screen #terminal .xterm-screen {
+        height: 100%;
+        min-height: 0;
+      }
+
+      html.xterm-renderer .xterm-screen #terminal .xterm {
+        overflow: hidden;
+      }
+
+      html.no-chrome.xterm-renderer .xterm-screen {
+        padding:
+          env(safe-area-inset-top)
+          env(safe-area-inset-right)
+          env(safe-area-inset-bottom)
+          env(safe-area-inset-left);
+      }
+
+      html.xterm-renderer .xterm .xterm-viewport {
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: none;
+      }
+
+      html.xterm-renderer .xterm .xterm-screen canvas {
+        pointer-events: none;
+      }
+
+      html.mobile-scroll-renderer .screen {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
+        touch-action: pan-y;
+      }
+
+      html.preview .screen-wrap,
+      html.preview .screen-shell,
+      html.preview .screen {
+        height: 100%;
+        min-height: 100%;
+      }
+
+      html.preview .screen {
+        padding: 6px 8px;
+        font-size: 9px;
+        line-height: 1.22;
       }
 
       .ansi-bold {
@@ -645,6 +795,41 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         color: rgba(157, 168, 189, 0.72);
       }
 
+      .debug-metrics {
+        position: absolute;
+        right: 14px;
+        bottom: 14px;
+        z-index: 30;
+        min-width: 220px;
+        max-width: min(320px, calc(100vw - 28px));
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(7, 11, 17, 0.84);
+        box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(16px);
+      }
+
+      .debug-metrics[hidden] {
+        display: none;
+      }
+
+      .debug-metrics-title {
+        margin: 0 0 8px;
+        color: rgba(232, 238, 246, 0.92);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .debug-metrics pre {
+        margin: 0;
+        color: rgba(147, 161, 180, 0.96);
+        font: 11px/1.5 var(--mono);
+        white-space: pre-wrap;
+      }
+
       .gate {
         position: absolute;
         inset: 0;
@@ -893,7 +1078,15 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
         <div class="screen-wrap">
           <section class="screen-shell">
-            <pre class="screen" id="screen"></pre>
+            <pre class="screen classic-screen" id="screen"></pre>
+            <div class="screen xterm-screen" id="xtermScreen">
+              <div id="terminal" aria-label="Live terminal output"></div>
+              <div class="xterm-selection-toolbar" id="xtermSelectionToolbar" data-visible="false">
+                <button type="button" id="xtermSelectToggle" data-active="false">Select</button>
+                <button type="button" id="xtermCopySelection">Copy</button>
+                <button type="button" id="xtermClearSelection">Clear</button>
+              </div>
+            </div>
 
             <section class="controls">
               <div class="controls-inner">
@@ -917,6 +1110,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
                         <textarea
                           id="composer"
                           placeholder="Type commands or paste text…"
+                          data-interactive-control
                           ${readonly ? "disabled" : ""}
                         ></textarea>
                       </div>
@@ -927,7 +1121,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
                         <span class="status-copy" id="footerHint">${readonly ? "Viewing only." : "Cmd/Ctrl + Enter sends • Built for tmux-backed shells and REPLs."}</span>
                       </div>
                       <div class="composer-actions">
-                        <button class="primary" id="send" ${readonly ? "disabled" : ""}>Send</button>
+                        <button class="primary" id="send" data-interactive-control ${readonly ? "disabled" : ""}>Send</button>
                       </div>
                     </div>
                   </div>
@@ -935,21 +1129,22 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
 
                 <div class="toolbar" aria-label="Terminal controls">
                   <div class="toolbar-group">
-                    <button id="pasteOnly" ${readonly ? "disabled" : ""}>Paste</button>
-                    <button id="tab" ${readonly ? "disabled" : ""}>Tab</button>
-                    <button id="esc" ${readonly ? "disabled" : ""}>Esc</button>
+                    <button id="pasteOnly" data-interactive-control ${readonly ? "disabled" : ""}>Paste</button>
+                    <button id="tab" data-interactive-control ${readonly ? "disabled" : ""}>Tab</button>
+                    <button id="esc" data-interactive-control ${readonly ? "disabled" : ""}>Esc</button>
                   </div>
                   <div class="toolbar-divider"></div>
                   <div class="toolbar-group">
-                    <button class="icon" id="left" ${readonly ? "disabled" : ""}>←</button>
-                    <button class="icon" id="up" ${readonly ? "disabled" : ""}>↑</button>
-                    <button class="icon" id="right" ${readonly ? "disabled" : ""}>→</button>
+                    <button class="icon" id="left" data-interactive-control ${readonly ? "disabled" : ""}>←</button>
+                    <button class="icon" id="up" data-interactive-control ${readonly ? "disabled" : ""}>↑</button>
+                    <button class="icon" id="right" data-interactive-control ${readonly ? "disabled" : ""}>→</button>
                   </div>
                   <div class="toolbar-divider"></div>
                   <div class="toolbar-group">
-                    <button class="danger" id="ctrlc" ${readonly ? "disabled" : ""}>Ctrl+C</button>
-                    <button id="ctrld" ${readonly ? "disabled" : ""}>Ctrl+D</button>
-                    <button id="enter" ${readonly ? "disabled" : ""}>Enter</button>
+                    <button class="danger" id="ctrlc" data-interactive-control ${readonly ? "disabled" : ""}>Ctrl+C</button>
+                    <button id="ctrld" data-interactive-control ${readonly ? "disabled" : ""}>Ctrl+D</button>
+                    <button id="enter" data-interactive-control ${readonly ? "disabled" : ""}>Enter</button>
+                    <button class="danger" id="restart" hidden>Restart</button>
                   </div>
                 </div>
 
@@ -958,12 +1153,19 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
                     <span class="status-inline" id="footerState">${readonly ? "Read-only" : "Interactive"}</span>
                     <span class="status-pill status-bad status-pill-hidden" id="conn">offline</span>
                     <span class="status-pill status-bad status-pill-hidden" id="proc">loading</span>
+                    <span class="status-pill status-bad status-pill-hidden" id="idle">idle</span>
+                    <span class="status-pill status-ok status-pill-hidden" id="prompt">prompt</span>
                     <span class="status-pill ${readonly ? "status-bad" : "status-ok"} status-pill-hidden">${readonly ? "read only" : "interactive"}</span>
                   </div>
                   <div class="status-group status-group-meta">
                     <span class="status-copy status-copy-quiet" id="footerMeta">${readonly ? "Viewing only." : "Interactive tmux session attached."}</span>
                   </div>
                 </div>
+
+                <aside class="debug-metrics" id="debugMetrics" hidden>
+                  <div class="debug-metrics-title">stream metrics</div>
+                  <pre id="debugMetricsText"></pre>
+                </aside>
               </div>
             </section>
           </section>
@@ -974,28 +1176,81 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
     <script>
       const readonly = ${readonly ? "true" : "false"};
       const passwordRequired = ${passwordRequired ? "true" : "false"};
-      const token = new URLSearchParams(window.location.search).get("token") || "";
+      const viewConfig = window.__rzrViewConfig || { noChrome: false, preview: false };
+      const lowChurnRenderMode = Boolean(viewConfig.preview);
+      const useXtermRenderer = viewConfig.renderer === "xterm";
+      const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      const searchParams = new URLSearchParams(window.location.search);
+      const debugMetricsEnabled = ["1", "true", "yes", "on"].includes((searchParams.get("debug") || searchParams.get("metrics") || "").toLowerCase());
+      const textEncoder = debugMetricsEnabled ? new TextEncoder() : null;
+      const token = searchParams.get("token") || "";
       const screen = document.getElementById("screen");
+      const terminalMount = document.getElementById("terminal");
+      const xtermSelectionToolbar = document.getElementById("xtermSelectionToolbar");
+      const xtermSelectToggle = document.getElementById("xtermSelectToggle");
+      const xtermCopySelection = document.getElementById("xtermCopySelection");
+      const xtermClearSelection = document.getElementById("xtermClearSelection");
       const subtitle = document.getElementById("subtitle");
       const conn = document.getElementById("conn");
       const proc = document.getElementById("proc");
+      const idle = document.getElementById("idle");
+      const prompt = document.getElementById("prompt");
       const sessionState = document.getElementById("sessionState");
       const footerState = document.getElementById("footerState");
       const footerMeta = document.getElementById("footerMeta");
       const composer = document.getElementById("composer");
       const send = document.getElementById("send");
       const pasteOnly = document.getElementById("pasteOnly");
+      const restart = document.getElementById("restart");
       const gate = document.getElementById("gate");
       const gateForm = document.getElementById("gateForm");
       const passwordField = document.getElementById("password");
       const gateError = document.getElementById("gateError");
+      const debugMetricsPanel = document.getElementById("debugMetrics");
+      const debugMetricsText = document.getElementById("debugMetricsText");
+      const interactiveControls = Array.from(document.querySelectorAll("[data-interactive-control]"));
+      const fitAddonCtor = window.FitAddon && window.FitAddon.FitAddon ? window.FitAddon.FitAddon : null;
       let events = null;
+      let terminalSocket = null;
+      let terminalSocketManualClose = false;
+      let terminalSocketReconnectTimer = null;
       let pollTimer = null;
       let lastSnapshotRevision = -1;
       let lastLiveEventAt = 0;
-      let authToken = "";
+      let lastRenderedScreen = "";
+      let lastRenderedPlainScreen = "";
+      let lastRenderedAnsiStyle = defaultAnsiStyle();
+      let terminal = null;
+      let fitAddon = null;
+      let resizeObserver = null;
+      let resizeRaf = 0;
+      let lastResizeSignature = "";
+      let terminalViewport = null;
+      let terminalTouchState = null;
+      let terminalSelectionMode = false;
+      let terminalSelectionAnchorLine = null;
+      let authToken = searchParams.get("auth") || "";
+      let restarting = false;
+      let transportObserverMode = false;
+      let transportObserverMessage = "";
       let connectionState = { label: "offline", ok: false };
       let processState = { label: "loading", ok: false };
+      let signalState = { idle: false, prompt: false, promptText: "" };
+      let pendingVisibleUpdateAt = 0;
+      const debugMetrics = {
+        streamOpens: 0,
+        streamErrors: 0,
+        pollFallbacks: 0,
+        snapshots: 0,
+        appendPatches: 0,
+        fullRepaints: 0,
+        lastSnapshotBytes: 0,
+        lastSnapshotGapMs: null,
+        lastRenderMs: null,
+        lastVisibleLatencyMs: null,
+        xtermLayout: null,
+      };
+      let lastRenderEndedAt = 0;
       const apiBaseUrl = (() => {
         const pathname = window.location.pathname.endsWith("/")
           ? window.location.pathname
@@ -1009,6 +1264,334 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           normalized = normalized.slice(1);
         }
         return new URL(normalized, apiBaseUrl);
+      }
+
+      function terminalWebSocketUrl() {
+        const url = apiUrl("api/terminal/ws");
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        url.searchParams.set("token", token);
+        if (authToken) {
+          url.searchParams.set("auth", authToken);
+        }
+        return url.toString();
+      }
+
+      function updateDebugMetrics() {
+        if (!debugMetricsEnabled || !debugMetricsPanel || !debugMetricsText) {
+          return;
+        }
+
+        const xtermLayout = debugMetrics.xtermLayout;
+        debugMetricsPanel.hidden = false;
+        const lines = [
+          "stream opens: " + debugMetrics.streamOpens,
+          "stream errors: " + debugMetrics.streamErrors,
+          "poll fallbacks: " + debugMetrics.pollFallbacks,
+          "snapshots: " + debugMetrics.snapshots,
+          "append patches: " + debugMetrics.appendPatches,
+          "full repaints: " + debugMetrics.fullRepaints,
+          "snapshot bytes: " + debugMetrics.lastSnapshotBytes,
+          "snapshot gap: " + (debugMetrics.lastSnapshotGapMs == null ? "—" : Math.round(debugMetrics.lastSnapshotGapMs) + "ms"),
+          "render: " + (debugMetrics.lastRenderMs == null ? "—" : debugMetrics.lastRenderMs.toFixed(1) + "ms"),
+          "input→paint: " + (debugMetrics.lastVisibleLatencyMs == null ? "—" : Math.round(debugMetrics.lastVisibleLatencyMs) + "ms"),
+          xtermLayout ? "terminal box: " + xtermLayout.mountHeight + "h/" + xtermLayout.mountTop + "t" : "terminal box: —",
+          xtermLayout ? "xterm box: " + xtermLayout.xtermHeight + "h screen=" + xtermLayout.screenHeight + " viewport=" + xtermLayout.viewportHeight : "xterm box: —",
+          xtermLayout ? "viewport scroll: top=" + xtermLayout.viewportScrollTop + " height=" + xtermLayout.viewportScrollHeight : "viewport scroll: —",
+          xtermLayout ? "rows/cols: " + xtermLayout.rows + "x" + xtermLayout.cols + " viewportY=" + xtermLayout.viewportY : "rows/cols: —",
+          xtermLayout ? "window: inner=" + xtermLayout.windowInnerHeight + " visual=" + xtermLayout.visualViewportHeight : "window: —",
+        ];
+        debugMetricsText.textContent = lines.join("\\n");
+      }
+
+      function roundMetric(value) {
+        return Number.isFinite(value) ? Math.round(value) : 0;
+      }
+
+      function collectXtermLayoutMetrics() {
+        if (!debugMetricsEnabled || !useXtermRenderer || !terminalMount) {
+          return;
+        }
+
+        const mountRect = terminalMount.getBoundingClientRect();
+        const xtermRoot = terminalMount.querySelector(".xterm");
+        const xtermScreenNode = terminalMount.querySelector(".xterm-screen");
+        const viewportNode = terminalMount.querySelector(".xterm-viewport");
+        const scrollAreaNode = terminalMount.querySelector(".xterm-scroll-area");
+
+        debugMetrics.xtermLayout = {
+          mountTop: roundMetric(mountRect.top),
+          mountHeight: roundMetric(mountRect.height),
+          xtermHeight: roundMetric(xtermRoot?.getBoundingClientRect?.().height || 0),
+          screenHeight: roundMetric(xtermScreenNode?.getBoundingClientRect?.().height || 0),
+          viewportHeight: roundMetric(viewportNode?.getBoundingClientRect?.().height || 0),
+          viewportScrollTop: roundMetric(viewportNode?.scrollTop || 0),
+          viewportScrollHeight: roundMetric(viewportNode?.scrollHeight || 0),
+          scrollAreaHeight: roundMetric(scrollAreaNode?.getBoundingClientRect?.().height || 0),
+          rows: Number(terminal?.rows || 0),
+          cols: Number(terminal?.cols || 0),
+          viewportY: Number(terminal?.buffer?.active?.viewportY || 0),
+          windowInnerHeight: roundMetric(window.innerHeight || 0),
+          visualViewportHeight: roundMetric(window.visualViewport?.height || 0),
+        };
+
+        window.__rzrXtermLayout = debugMetrics.xtermLayout;
+      }
+
+      function isMobileSelectionSupported() {
+        return useXtermRenderer && isTouchDevice;
+      }
+
+      function setTerminalSelectionMode(active) {
+        terminalSelectionMode = Boolean(active);
+        if (!terminalSelectionMode) {
+          terminalSelectionAnchorLine = null;
+        }
+        if (xtermSelectionToolbar) {
+          xtermSelectionToolbar.dataset.visible = isMobileSelectionSupported() ? "true" : "false";
+        }
+        if (xtermSelectToggle) {
+          xtermSelectToggle.dataset.active = terminalSelectionMode ? "true" : "false";
+          xtermSelectToggle.textContent = terminalSelectionMode ? "Selecting…" : "Select";
+        }
+      }
+
+      function clearTerminalSelection() {
+        terminalSelectionAnchorLine = null;
+        terminal?.clearSelection();
+        setTerminalSelectionMode(false);
+      }
+
+      function getTerminalLineFromTouch(clientY) {
+        if (!terminalViewport || !terminal) {
+          return 0;
+        }
+        const rect = terminalViewport.getBoundingClientRect();
+        const relativeY = Math.max(0, clientY - rect.top);
+        const cellHeight = terminalViewport.clientHeight && terminal.rows
+          ? Math.max(1, terminalViewport.clientHeight / Math.max(terminal.rows, 1))
+          : 18;
+        const viewportOffset = Math.floor(relativeY / cellHeight);
+        const maxVisibleOffset = Math.max(0, terminal.rows - 1);
+        return Math.max(0, terminal.buffer.active.viewportY + Math.min(maxVisibleOffset, viewportOffset));
+      }
+
+      async function copyTerminalSelection() {
+        if (!terminal || !terminal.hasSelection()) {
+          return;
+        }
+        const value = terminal.getSelection();
+        if (!value) {
+          return;
+        }
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            __rzrTerminalCopy: true,
+            text: value,
+          }));
+          return;
+        }
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+        }
+      }
+
+      function ensureTerminal() {
+        if (!useXtermRenderer || terminal || !terminalMount || !window.Terminal) {
+          return terminal;
+        }
+
+        terminal = new window.Terminal({
+          allowTransparency: true,
+          convertEol: true,
+          cursorBlink: false,
+          cursorStyle: "bar",
+          disableStdin: true,
+          fontFamily: 'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace',
+          fontSize: 13,
+          lineHeight: 1.32,
+          scrollback: 10000,
+          theme: {
+            background: "#05070c",
+            foreground: "#e8eef6",
+            cursor: "#7cf6ff",
+            selectionBackground: "rgba(124, 246, 255, 0.18)",
+          },
+        });
+
+        if (fitAddonCtor) {
+          fitAddon = new fitAddonCtor();
+          terminal.loadAddon(fitAddon);
+        }
+
+        terminal.open(terminalMount);
+        fitAddon?.fit();
+        attachTerminalTouchScroll();
+        window.__rzrHandleInsetsChanged = scheduleTerminalResize;
+        collectXtermLayoutMetrics();
+        requestAnimationFrame(() => {
+          scheduleTerminalResize();
+        });
+        setTimeout(() => {
+          scheduleTerminalResize();
+        }, 50);
+        setTimeout(() => {
+          scheduleTerminalResize();
+        }, 250);
+        setTerminalSelectionMode(false);
+        return terminal;
+      }
+
+      function attachTerminalTouchScroll() {
+        if (!useXtermRenderer || !terminalMount || terminalViewport) {
+          return;
+        }
+
+        terminalViewport = terminalMount.querySelector(".xterm-viewport");
+        if (!terminalViewport) {
+          return;
+        }
+
+        const getCellHeight = () => {
+          if (terminalViewport && terminal && terminal.rows) {
+            return Math.max(1, terminalViewport.clientHeight / Math.max(terminal.rows, 1));
+          }
+          return 18;
+        };
+
+        const isInsideTerminal = (event) => {
+          const touchTarget = event.target;
+          return Boolean(touchTarget && terminalMount.contains(touchTarget));
+        };
+
+        const handleTouchStart = (event) => {
+          if (!isInsideTerminal(event)) {
+            terminalTouchState = null;
+            return;
+          }
+
+          if (!event.touches || event.touches.length !== 1) {
+            terminalTouchState = null;
+            return;
+          }
+
+          terminalTouchState = {
+            lastY: event.touches[0].clientY,
+            residualY: 0,
+          };
+
+          if (terminalSelectionMode) {
+            const line = getTerminalLineFromTouch(event.touches[0].clientY);
+            terminalSelectionAnchorLine = line;
+            terminal?.selectLines(line, line);
+          }
+        };
+
+        const handleTouchMove = (event) => {
+          if (!isInsideTerminal(event)) {
+            return;
+          }
+
+          if (!terminalTouchState || !event.touches || event.touches.length !== 1) {
+            return;
+          }
+
+          const nextY = event.touches[0].clientY;
+
+          if (terminalSelectionMode) {
+            const line = getTerminalLineFromTouch(nextY);
+            const anchor = terminalSelectionAnchorLine == null ? line : terminalSelectionAnchorLine;
+            terminal?.selectLines(Math.min(anchor, line), Math.max(anchor, line));
+            event.preventDefault();
+            return;
+          }
+        };
+
+        const clearTouchState = () => {
+          terminalTouchState = null;
+        };
+
+        document.addEventListener("touchstart", handleTouchStart, { passive: true, capture: true });
+        document.addEventListener("touchmove", handleTouchMove, { passive: false, capture: true });
+        document.addEventListener("touchend", clearTouchState, { passive: true, capture: true });
+        document.addEventListener("touchcancel", clearTouchState, { passive: true, capture: true });
+      }
+
+      async function syncTerminalSize() {
+        if (!useXtermRenderer) {
+          return;
+        }
+
+        const instance = ensureTerminal();
+        if (!instance) {
+          return;
+        }
+
+        fitAddon?.fit();
+
+        const cols = Number(instance.cols || 0);
+        const rows = Number(instance.rows || 0);
+        collectXtermLayoutMetrics();
+        updateDebugMetrics();
+        if (!cols || !rows) {
+          return;
+        }
+
+        if (readonly) {
+          return;
+        }
+
+        const signature = cols + "x" + rows;
+        if (signature === lastResizeSignature) {
+          return;
+        }
+
+        lastResizeSignature = signature;
+
+        try {
+          if (useXtermRenderer) {
+            if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+              terminalSocket.send(JSON.stringify({
+                type: "resize",
+                cols,
+                rows,
+              }));
+            }
+            return;
+          }
+
+          const response = await post("api/resize", { cols, rows });
+          const payload = await response.json();
+          if (payload.snapshot) {
+            renderSnapshot(payload.snapshot);
+          }
+        } catch {
+        }
+      }
+
+      function scheduleTerminalResize() {
+        if (!useXtermRenderer) {
+          return;
+        }
+
+        if (resizeRaf) {
+          cancelAnimationFrame(resizeRaf);
+        }
+
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = 0;
+          syncTerminalSize();
+        });
+      }
+
+      function attachTerminalResizeObserver() {
+        if (!useXtermRenderer || resizeObserver || !window.ResizeObserver || !terminalMount) {
+          return;
+        }
+
+        resizeObserver = new ResizeObserver(() => {
+          scheduleTerminalResize();
+        });
+        resizeObserver.observe(terminalMount);
       }
 
       function setConn(label, ok) {
@@ -1025,15 +1608,43 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         updateStatusSummary();
       }
 
+      function setSignalPill(node, label, active, ok = true) {
+        if (!node) return;
+        node.textContent = label;
+        node.className = "status-pill " + (ok ? "status-ok" : "status-bad") + (active ? "" : " status-pill-hidden");
+      }
+
+      function setInteractiveControlsEnabled(enabled) {
+        const allowInteraction = enabled && !readonly && !restarting && !transportObserverMode;
+        interactiveControls.forEach((node) => {
+          node.disabled = !allowInteraction;
+        });
+      }
+
+      function setRestartVisible(visible) {
+        if (!restart) {
+          return;
+        }
+
+        restart.hidden = !visible;
+        restart.disabled = restarting;
+        restart.textContent = restarting ? "Restarting…" : "Restart";
+      }
+
       function updateStatusSummary() {
         const connected = connectionState.ok;
         const live = processState.ok;
+        const dead = processState.label === "exited";
+        const missing = processState.label === "missing";
         let topText = "";
         let bottomText = "";
 
         if (readonly) {
           topText = live ? "Read-only · tmux session attached" : "Read-only · waiting for session";
           bottomText = connected ? "Read-only viewer connected." : "Read-only viewer reconnecting.";
+        } else if (transportObserverMode) {
+          topText = "Observe · live terminal active elsewhere";
+          bottomText = transportObserverMessage || "Live terminal is active on another device.";
         } else if (live && connected) {
           topText = "Interactive · tmux session attached";
           bottomText = "Interactive session live.";
@@ -1051,6 +1662,12 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           bottomText = "Waiting for the live bridge.";
         }
 
+        if (signalState.prompt) {
+          bottomText = signalState.promptText || "Terminal is waiting for input.";
+        } else if (signalState.idle && live) {
+          bottomText = "Session is idle.";
+        }
+
         if (sessionState) {
           const parts = topText.split(" · ");
           if (parts.length > 1) {
@@ -1061,12 +1678,27 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
 
         if (footerState) {
-          footerState.textContent = readonly ? "Read-only" : live ? "Interactive" : "Connecting";
+          footerState.textContent = readonly
+            ? "Read-only"
+            : transportObserverMode
+              ? "Observe"
+            : dead
+              ? "Exited"
+              : missing
+                ? "Missing"
+                : live
+                  ? "Interactive"
+                  : "Connecting";
         }
 
         if (footerMeta) {
           footerMeta.textContent = bottomText;
         }
+
+        setSignalPill(idle, "idle", signalState.idle, false);
+        setSignalPill(prompt, "input", signalState.prompt, true);
+        setInteractiveControlsEnabled(!dead && !missing);
+        setRestartVisible(!readonly && dead);
       }
 
       function clearComposer() {
@@ -1113,8 +1745,27 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         return response;
       }
 
+      async function readSessionPayload(response) {
+        const raw = await response.text();
+        if (!raw) {
+          return null;
+        }
+
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return { error: raw };
+        }
+      }
+
       async function pasteText(value) {
         if (!value) {
+          return;
+        }
+
+        pendingVisibleUpdateAt = window.performance?.now?.() ?? Date.now();
+        if (useXtermRenderer && terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+          terminalSocket.send(JSON.stringify({ type: "input", text: value }));
           return;
         }
 
@@ -1126,6 +1777,12 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
       }
 
       async function pressKey(key) {
+        pendingVisibleUpdateAt = window.performance?.now?.() ?? Date.now();
+        if (useXtermRenderer && terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+          terminalSocket.send(JSON.stringify({ type: "key", key }));
+          return;
+        }
+
         const response = await post("api/key", { key });
         const payload = await response.json();
         if (payload.snapshot) {
@@ -1139,6 +1796,25 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
 
         await pressKey("Enter");
+      }
+
+      function scrollTerminal(lines) {
+        const instance = ensureTerminal();
+        if (!instance || !Number.isFinite(lines) || lines === 0) {
+          return;
+        }
+
+        instance.scrollLines(lines);
+      }
+
+      function scrollTerminalPage(direction) {
+        const instance = ensureTerminal();
+        if (!instance) {
+          return;
+        }
+
+        const pageLines = Math.max(4, Math.floor((instance.rows || 24) * 0.85));
+        scrollTerminal((direction < 0 ? -1 : 1) * pageLines);
       }
 
       function maybeStickToBottom(beforeHeight) {
@@ -1316,11 +1992,11 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         return next;
       }
 
-      function renderAnsi(text) {
+      function renderAnsiFragment(text, initialStyle = defaultAnsiStyle()) {
         const sgrPattern = /\\u001b\\[([0-9;]*)m/g;
         const oscPattern = /\\u001b\\][^\\u0007]*(\\u0007|\\u001b\\\\)/g;
         let cursor = 0;
-        let style = defaultAnsiStyle();
+        let style = cloneStyle(initialStyle);
         let html = "";
         let match;
 
@@ -1346,7 +2022,10 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           html += "<span" + classAttribute + styleAttribute + ">" + escapeHtml(tail) + "</span>";
         }
 
-        return html;
+        return {
+          html,
+          finalStyle: cloneStyle(style),
+        };
       }
 
       function renderSnapshot(snapshot) {
@@ -1355,13 +2034,96 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         }
 
         lastSnapshotRevision = typeof snapshot.revision === "number" ? snapshot.revision : lastSnapshotRevision;
+        const renderStartedAt = window.performance?.now?.() ?? Date.now();
+        const nextScreen = snapshot.screen || "";
         const beforeHeight = screen.scrollHeight;
-        screen.innerHTML = renderAnsi(snapshot.screen || "");
-        maybeStickToBottom(beforeHeight);
+        if (useXtermRenderer) {
+          const instance = ensureTerminal();
+          const canAppendTail =
+            lastRenderedScreen.length > 0
+            && nextScreen.startsWith(lastRenderedScreen)
+            && !nextScreen.slice(lastRenderedScreen.length).includes("\\r");
+
+          if (instance) {
+            if (canAppendTail) {
+              instance.write(nextScreen.slice(lastRenderedScreen.length));
+              debugMetrics.appendPatches += 1;
+            } else if (nextScreen !== lastRenderedScreen) {
+              instance.reset();
+              instance.clear();
+              instance.write("\\u001b[2J\\u001b[H" + nextScreen);
+              debugMetrics.fullRepaints += 1;
+            }
+          } else {
+            screen.textContent = stripAnsi(nextScreen);
+            debugMetrics.fullRepaints += 1;
+          }
+        } else if (lowChurnRenderMode) {
+          const nextPlainScreen = stripAnsi(nextScreen);
+          const canAppendTail =
+            lastRenderedPlainScreen.length > 0
+            && nextPlainScreen.startsWith(lastRenderedPlainScreen)
+            && !nextPlainScreen.slice(lastRenderedPlainScreen.length).includes("\\r");
+
+          if (canAppendTail) {
+            screen.textContent += nextPlainScreen.slice(lastRenderedPlainScreen.length);
+            debugMetrics.appendPatches += 1;
+          } else if (nextPlainScreen !== lastRenderedPlainScreen) {
+            screen.textContent = nextPlainScreen;
+            debugMetrics.fullRepaints += 1;
+          }
+
+          lastRenderedPlainScreen = nextPlainScreen;
+        } else {
+          const canAppendTail =
+            lastRenderedScreen.length > 0
+            && nextScreen.startsWith(lastRenderedScreen)
+            && !nextScreen.slice(lastRenderedScreen.length).includes("\\r");
+
+          if (canAppendTail) {
+            const tail = nextScreen.slice(lastRenderedScreen.length);
+            const renderedTail = renderAnsiFragment(tail, lastRenderedAnsiStyle);
+            screen.insertAdjacentHTML("beforeend", renderedTail.html);
+            lastRenderedAnsiStyle = renderedTail.finalStyle;
+            debugMetrics.appendPatches += 1;
+          } else if (nextScreen !== lastRenderedScreen) {
+            const renderedScreen = renderAnsiFragment(nextScreen);
+            screen.innerHTML = renderedScreen.html;
+            lastRenderedAnsiStyle = renderedScreen.finalStyle;
+            debugMetrics.fullRepaints += 1;
+          }
+        }
+
+        lastRenderedScreen = nextScreen;
+        if (!useXtermRenderer) {
+          maybeStickToBottom(beforeHeight);
+        }
+        debugMetrics.snapshots += 1;
+        if (textEncoder) {
+          debugMetrics.lastSnapshotBytes = textEncoder.encode(nextScreen).length;
+        }
+        if (lastRenderEndedAt) {
+          debugMetrics.lastSnapshotGapMs = Date.now() - lastRenderEndedAt;
+        }
+        if (pendingVisibleUpdateAt) {
+          debugMetrics.lastVisibleLatencyMs = (window.performance?.now?.() ?? Date.now()) - pendingVisibleUpdateAt;
+          pendingVisibleUpdateAt = 0;
+        }
+        debugMetrics.lastRenderMs = (window.performance?.now?.() ?? Date.now()) - renderStartedAt;
+        lastRenderEndedAt = Date.now();
+        updateDebugMetrics();
 
         const dead = Boolean(snapshot.info && snapshot.info.dead);
         const missing = Boolean(snapshot.info && snapshot.info.missing);
         const title = snapshot.info && snapshot.info.title ? " · " + snapshot.info.title : "";
+        signalState = {
+          idle: Boolean(snapshot.signals && snapshot.signals.idle && snapshot.signals.idle.isIdle),
+          prompt: Boolean(snapshot.signals && snapshot.signals.input && snapshot.signals.input.waiting),
+          promptText:
+            snapshot.signals && snapshot.signals.input && snapshot.signals.input.prompt
+              ? snapshot.signals.input.prompt
+              : "",
+        };
         subtitle.textContent = (snapshot.info ? snapshot.info.currentCommand : "session") + title;
         setProc(missing ? "missing" : dead ? "exited" : "live", !dead && !missing);
       }
@@ -1375,18 +2137,28 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
             },
             credentials: "same-origin",
           });
+          const session = await readSessionPayload(response);
 
-          if (!response.ok) {
+          if (!response.ok && response.status !== 410) {
             return;
           }
 
-          const session = await response.json();
-          renderSnapshot(session.snapshot);
+          if (session && session.snapshot) {
+            renderSnapshot(session.snapshot);
+          }
         } catch {
         }
       }
 
       function ensurePollingFallback() {
+        if (useXtermRenderer) {
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+          return;
+        }
+
         if (pollTimer) {
           clearInterval(pollTimer);
         }
@@ -1394,6 +2166,8 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         pollTimer = setInterval(() => {
           const streamLooksStale = !lastLiveEventAt || (Date.now() - lastLiveEventAt > 4000);
           if (streamLooksStale) {
+            debugMetrics.pollFallbacks += 1;
+            updateDebugMetrics();
             pollSession();
           }
         }, 1500);
@@ -1414,6 +2188,8 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         events = new EventSource(streamUrl);
         events.addEventListener("open", () => {
           lastLiveEventAt = Date.now();
+          debugMetrics.streamOpens += 1;
+          updateDebugMetrics();
           setConn("connected", true);
         });
 
@@ -1430,7 +2206,130 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         });
 
         events.addEventListener("error", () => {
+          debugMetrics.streamErrors += 1;
+          updateDebugMetrics();
           setConn("reconnecting", false);
+        });
+
+        ensurePollingFallback();
+      }
+
+      function clearTerminalSocketReconnect() {
+        if (terminalSocketReconnectTimer) {
+          clearTimeout(terminalSocketReconnectTimer);
+          terminalSocketReconnectTimer = null;
+        }
+      }
+
+      function closeTerminalSocket() {
+        clearTerminalSocketReconnect();
+        if (terminalSocket) {
+          terminalSocketManualClose = true;
+          terminalSocket.close();
+          terminalSocket = null;
+        }
+      }
+
+      function scheduleTerminalSocketReconnect() {
+        if (!useXtermRenderer || terminalSocketReconnectTimer || gate && !gate.hidden) {
+          return;
+        }
+
+        terminalSocketReconnectTimer = setTimeout(() => {
+          terminalSocketReconnectTimer = null;
+          connectTerminalSocket();
+        }, 1000);
+      }
+
+      function handleTerminalSocketMessage(payload) {
+        lastLiveEventAt = Date.now();
+
+        switch (payload?.type) {
+          case "ready":
+            transportObserverMode = Boolean(payload.observer);
+            transportObserverMessage = transportObserverMode ? String(payload.reason || "") : "";
+            setConn("connected", true);
+            updateStatusSummary();
+            break;
+          case "snapshot":
+            if (payload.snapshot) {
+              renderSnapshot(payload.snapshot);
+            }
+            break;
+          case "output":
+            if (payload.data && terminal) {
+              terminal.write(String(payload.data));
+              lastRenderedScreen += String(payload.data);
+              debugMetrics.appendPatches += 1;
+              if (textEncoder) {
+                debugMetrics.lastSnapshotBytes = textEncoder.encode(String(payload.data)).length;
+              }
+              if (pendingVisibleUpdateAt) {
+                debugMetrics.lastVisibleLatencyMs = (window.performance?.now?.() ?? Date.now()) - pendingVisibleUpdateAt;
+                pendingVisibleUpdateAt = 0;
+              }
+              updateDebugMetrics();
+            }
+            break;
+          case "runtime-close":
+            transportObserverMode = false;
+            transportObserverMessage = "";
+            setConn("reconnecting", false);
+            scheduleTerminalSocketReconnect();
+            break;
+          case "error":
+            subtitle.textContent = payload.error || "Terminal transport error";
+            if (!(terminalSocket && terminalSocket.readyState === WebSocket.OPEN)) {
+              setConn("reconnecting", false);
+              scheduleTerminalSocketReconnect();
+            }
+            break;
+          case "pong":
+          case "runtime-event":
+          default:
+            break;
+        }
+      }
+
+      function connectTerminalSocket() {
+        closeTerminalSocket();
+        lastLiveEventAt = Date.now();
+        setConn("connecting", false);
+
+        terminalSocket = new WebSocket(terminalWebSocketUrl());
+        terminalSocket.addEventListener("open", () => {
+          terminalSocketManualClose = false;
+          debugMetrics.streamOpens += 1;
+          updateDebugMetrics();
+          const instance = ensureTerminal();
+          terminalSocket.send(JSON.stringify({
+            type: "connect",
+            cols: instance ? instance.cols : 0,
+            rows: instance ? instance.rows : 0,
+            pauseAfter: 15,
+          }));
+        });
+        terminalSocket.addEventListener("message", (event) => {
+          try {
+            handleTerminalSocketMessage(JSON.parse(String(event.data)));
+          } catch {
+            // ignore malformed payloads
+          }
+        });
+        terminalSocket.addEventListener("close", () => {
+          const wasManualClose = terminalSocketManualClose;
+          terminalSocketManualClose = false;
+          debugMetrics.streamErrors += 1;
+          updateDebugMetrics();
+          terminalSocket = null;
+          if (!wasManualClose) {
+            setConn("reconnecting", false);
+            scheduleTerminalSocketReconnect();
+          }
+        });
+        terminalSocket.addEventListener("error", () => {
+          debugMetrics.streamErrors += 1;
+          updateDebugMetrics();
         });
 
         ensurePollingFallback();
@@ -1444,21 +2343,51 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           },
           credentials: "same-origin",
         });
+        const session = await readSessionPayload(response);
 
         if (response.status === 401 && passwordRequired) {
           setGateVisible(true);
           return false;
         }
 
-        if (!response.ok) {
-          throw new Error(await response.text());
+        if (!response.ok && response.status !== 410) {
+          throw new Error(session && session.error ? session.error : response.statusText);
         }
 
-        const session = await response.json();
         setGateVisible(false);
-        renderSnapshot(session.snapshot);
-        connectStream();
+        if (session && session.snapshot && !useXtermRenderer) {
+          renderSnapshot(session.snapshot);
+        }
+        attachTerminalResizeObserver();
+        scheduleTerminalResize();
+        if (useXtermRenderer && window.WebSocket) {
+          connectTerminalSocket();
+        } else {
+          connectStream();
+        }
         return true;
+      }
+
+      async function restartDeadSession() {
+        if (readonly || restarting || processState.label !== "exited") {
+          return;
+        }
+
+        restarting = true;
+        updateStatusSummary();
+
+        try {
+          const response = await post("api/session/restart", {});
+          const payload = await response.json();
+          if (payload.snapshot) {
+            renderSnapshot(payload.snapshot);
+          }
+        } catch (error) {
+          subtitle.textContent = error.message || "Unable to restart the dead terminal.";
+        } finally {
+          restarting = false;
+          updateStatusSummary();
+        }
       }
 
       async function boot() {
@@ -1468,6 +2397,13 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           setProc("unknown", false);
           return;
         }
+
+        ensureTerminal();
+        attachTerminalResizeObserver();
+        window.addEventListener("resize", scheduleTerminalResize);
+        window.visualViewport?.addEventListener("resize", scheduleTerminalResize);
+        window.visualViewport?.addEventListener("scroll", scheduleTerminalResize);
+        window.addEventListener("beforeunload", closeTerminalSocket);
 
         try {
           await connectSession();
@@ -1490,6 +2426,27 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
           setGateVisible(true, error.message);
         }
       });
+
+      if (xtermSelectToggle) {
+        xtermSelectToggle.addEventListener("click", () => {
+          setTerminalSelectionMode(!terminalSelectionMode);
+          if (!terminalSelectionMode) {
+            terminal?.clearSelection();
+          }
+        });
+      }
+
+      if (xtermClearSelection) {
+        xtermClearSelection.addEventListener("click", () => {
+          clearTerminalSelection();
+        });
+      }
+
+      if (xtermCopySelection) {
+        xtermCopySelection.addEventListener("click", async () => {
+          await copyTerminalSelection();
+        });
+      }
 
       if (!readonly) {
         send.addEventListener("click", async () => {
@@ -1518,6 +2475,11 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
             await pressKey(key);
           });
         }
+        if (restart) {
+          restart.addEventListener("click", async () => {
+            await restartDeadSession();
+          });
+        }
 
         composer.addEventListener("keydown", async (event) => {
           if (event.key === "Enter" && !event.shiftKey) {
@@ -1538,6 +2500,18 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
             return;
           }
 
+          if (useXtermRenderer && event.key === "PageUp") {
+            event.preventDefault();
+            scrollTerminalPage(-1);
+            return;
+          }
+
+          if (useXtermRenderer && event.key === "PageDown") {
+            event.preventDefault();
+            scrollTerminalPage(1);
+            return;
+          }
+
           if (event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "c") {
             event.preventDefault();
             await pressKey("C-c");
@@ -1551,6 +2525,7 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired }) {
         });
       }
 
+      updateDebugMetrics();
       boot();
     </script>
   </body>

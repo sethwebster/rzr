@@ -4,8 +4,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const CLOUDFLARE_URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
-const NGROK_URL_RE = /url=(https:\/\/[^\s]+)/i;
-const GENERIC_HTTPS_URL_RE = /https:\/\/[^\s"'`]+/i;
 const CLOUDFLARE_READY_RE = /(registered tunnel connection|connection .+ registered|starting metrics server|initial protocol)/i;
 
 function commandExists(command, args = ["--version"]) {
@@ -123,6 +121,7 @@ function makeTunnelProcess({ provider, command, args, parsePublicUrl, startupTim
 
   return {
     provider,
+    pid: child.pid,
     ready,
     closed: closedPromise,
     get publicUrl() {
@@ -190,65 +189,21 @@ function startCloudflaredQuickTunnel(localUrl, tunnelName) {
   });
 }
 
-function startNgrokTunnel(localUrl, tunnelName) {
-  const args = ["http", localUrl, "--log", "stdout", "--log-format", "logfmt"];
-  if (tunnelName) {
-    args.push("--name", tunnelName);
-  }
-
-  return makeTunnelProcess({
-    provider: "ngrok",
-    command: "ngrok",
-    args,
-    parsePublicUrl: (chunk, logs) => {
-      const urlFromLogfmt = chunk.match(NGROK_URL_RE)?.[1];
-      if (urlFromLogfmt) {
-        return urlFromLogfmt;
-      }
-
-      const anyHttps = logs.match(GENERIC_HTTPS_URL_RE)?.[0] || null;
-      return anyHttps && anyHttps.includes("ngrok") ? anyHttps : null;
-    },
-  });
-}
-
-function startLocaltunnel(port, tunnelName) {
-  const args = ["--yes", "localtunnel", "--port", String(port)];
-  const subdomain = tunnelName ? sanitizeTunnelName(tunnelName) : "";
-  if (subdomain) {
-    args.push("--subdomain", subdomain);
-  }
-
-  return makeTunnelProcess({
-    provider: "localtunnel",
-    command: "npx",
-    args,
-    startupTimeoutMs: 30000,
-    parsePublicUrl: (chunk, logs) => {
-      const anyHttps = chunk.match(GENERIC_HTTPS_URL_RE)?.[0]
-        || logs.match(GENERIC_HTTPS_URL_RE)?.[0]
-        || null;
-      return anyHttps;
-    },
-  });
-}
-
 export async function startBestTunnel({ localUrl, port, tunnelName = "" }) {
+  if (!(await commandExists("cloudflared"))) {
+    throw new Error(
+      "cloudflared is required for public tunnels but was not found.\n"
+      + "Install it with: brew install cloudflared",
+    );
+  }
+
   const candidates = [];
 
-  if (await commandExists("cloudflared")) {
-    if (tunnelName && looksLikeHostname(tunnelName) && hasCloudflareOriginCert()) {
-      candidates.push(() => startCloudflaredNamedTunnel(localUrl, tunnelName));
-    }
-
-    candidates.push(() => startCloudflaredQuickTunnel(localUrl, tunnelName));
+  if (tunnelName && looksLikeHostname(tunnelName) && hasCloudflareOriginCert()) {
+    candidates.push(() => startCloudflaredNamedTunnel(localUrl, tunnelName));
   }
 
-  if (await commandExists("ngrok")) {
-    candidates.push(() => startNgrokTunnel(localUrl, tunnelName));
-  }
-
-  candidates.push(() => startLocaltunnel(port, tunnelName));
+  candidates.push(() => startCloudflaredQuickTunnel(localUrl, tunnelName));
 
   const errors = [];
 
@@ -259,10 +214,69 @@ export async function startBestTunnel({ localUrl, port, tunnelName = "" }) {
       await tunnel.ready;
       return tunnel;
     } catch (error) {
-      errors.push(`${tunnel.provider}: ${error.message}`);
+      errors.push(`cloudflared: ${error.message}`);
       await tunnel.close().catch(() => {});
     }
   }
 
-  throw new Error(`unable to establish a public tunnel\n${errors.join("\n")}`);
+  throw new Error(`unable to establish a cloudflared tunnel\n${errors.join("\n")}`);
+}
+
+export function adoptTunnelProcess(pid, provider, publicUrl) {
+  let alive = true;
+
+  try {
+    process.kill(pid, 0);
+  } catch {
+    throw new Error(`tunnel process ${pid} is not alive`);
+  }
+
+  const closedPromise = new Promise((resolve) => {
+    const interval = setInterval(() => {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        alive = false;
+        clearInterval(interval);
+        resolve({ code: null, signal: null });
+      }
+    }, 1000);
+    interval.unref?.();
+  });
+
+  async function close() {
+    if (!alive) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      const killTimer = setTimeout(() => {
+        try { process.kill(pid, "SIGKILL"); } catch {}
+      }, 3000);
+
+      const checkInterval = setInterval(() => {
+        try {
+          process.kill(pid, 0);
+        } catch {
+          alive = false;
+          clearTimeout(killTimer);
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+
+      try { process.kill(pid, "SIGTERM"); } catch {}
+    });
+  }
+
+  return {
+    provider,
+    pid,
+    ready: Promise.resolve(publicUrl),
+    closed: closedPromise,
+    get publicUrl() {
+      return publicUrl;
+    },
+    close,
+  };
 }

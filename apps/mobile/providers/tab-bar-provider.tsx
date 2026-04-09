@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useState, type PropsWithChildren } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type PropsWithChildren,
+} from 'react';
 
 type TabBarContextValue = {
   hidden: boolean;
@@ -10,11 +17,8 @@ const TabBarContext = createContext<TabBarContextValue>({ hidden: false, setHidd
 export function TabBarProvider({ children }: PropsWithChildren) {
   const [hidden, setHiddenRaw] = useState(false);
   const setHidden = useCallback((v: boolean) => setHiddenRaw(v), []);
-  return (
-    <TabBarContext.Provider value={{ hidden, setHidden }}>
-      {children}
-    </TabBarContext.Provider>
-  );
+  const value = useMemo<TabBarContextValue>(() => ({ hidden, setHidden }), [hidden, setHidden]);
+  return <TabBarContext.Provider value={value}>{children}</TabBarContext.Provider>;
 }
 
 export function useTabBar() {

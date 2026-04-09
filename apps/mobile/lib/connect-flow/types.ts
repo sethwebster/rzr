@@ -96,6 +96,7 @@ export type ConnectDraft = {
 
 export type PreparedConnection = ConnectDraft & {
   normalizedUrl: string;
+  requiresPassword?: boolean;
   token?: string;
   source: 'manual' | 'qr';
 };
@@ -136,7 +137,7 @@ export type ConnectFlowEvent =
   | { type: 'SHOW_ERROR'; error: string }
   | { type: 'SUBMIT_MANUAL'; connection: PreparedConnection }
   | { type: 'SCAN_RESULT'; connection: PreparedConnection }
-  | { type: 'CONNECTION_READY'; nonce: number }
+  | { type: 'CONNECTION_READY'; nonce: number; requiresPassword?: boolean }
   | { type: 'CONNECTION_FAILED'; nonce: number; error: string }
   | { type: 'RESET' };
 

@@ -20,6 +20,9 @@ const extraBlockList = [
   new RegExp(`${escapeRegExp(path.join(projectRoot, 'ios'))}\\/.*`),
   new RegExp(`${escapeRegExp(path.join(projectRoot, 'android'))}\\/.*`),
   new RegExp(`${escapeRegExp(path.join(projectRoot, 'dist'))}\\/.*`),
+  // OMX state/log files churn during agent runs and should never trigger app refreshes
+  new RegExp(`${escapeRegExp(path.join(projectRoot, '.omx'))}\\/.*`),
+  new RegExp(`${escapeRegExp(path.join(monorepoRoot, '.omx'))}\\/.*`),
 ];
 
 config.resolver.blockList = [
@@ -30,5 +33,4 @@ config.resolver.blockList = [
 module.exports = withNativewind(config, {
   input: './global.css',
   inlineVariables: false,
-  globalClassNamePolyfill: false,
 });

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { type PressableProps } from 'react-native';
+import { useState } from 'react';
 import { Pressable, Text } from '@/tw';
 
 import { cx } from '@/lib/utils';
@@ -16,11 +17,24 @@ export function PremiumButton({
   icon,
   variant = 'primary',
   className,
+  onPressIn,
+  onPressOut,
+  style,
   ...rest
 }: Props) {
+  const [pressed, setPressed] = useState(false);
+
   return (
     <Pressable
       {...rest}
+      onPressIn={(event) => {
+        setPressed(true);
+        onPressIn?.(event);
+      }}
+      onPressOut={(event) => {
+        setPressed(false);
+        onPressOut?.(event);
+      }}
       className={cx(
         'flex-row items-center justify-center gap-2 rounded-full px-4 py-3.5',
         variant === 'primary' && 'bg-rzr-cyan',
@@ -28,7 +42,18 @@ export function PremiumButton({
         variant === 'ghost' && 'bg-transparent',
         className,
       )}
-      style={({ pressed }) => (pressed && variant !== 'ghost' ? { opacity: 0.85 } : null)}>
+      style={[
+        typeof style === 'function' ? style({ pressed }) : style,
+        pressed
+          ? {
+              opacity: variant === 'ghost' ? 0.62 : 0.82,
+              transform: [{ scale: 0.965 }],
+            }
+          : {
+              opacity: 1,
+              transform: [{ scale: 1 }],
+            },
+      ]}>
       {icon ? (
         <Ionicons
           name={icon}

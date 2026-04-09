@@ -1,6 +1,6 @@
 import { Text, View } from '@/tw';
 
-import { LiquidGlassCard } from '@/components/liquid-glass-card';
+import { InsetPanel, SectionCard } from '@/components/design-elements';
 
 const PREVIEW_LINES = [
   '$ rzr run --tunnel --password secret -- codex',
@@ -15,7 +15,7 @@ const PREVIEW_LINES = [
 
 export function TerminalPreview() {
   return (
-    <LiquidGlassCard className="px-5 py-5">
+    <SectionCard>
       <View className="mb-4 flex-row items-center gap-2">
         <View className="h-2.5 w-2.5 rounded-full bg-[#ff6a6a]" />
         <View className="h-2.5 w-2.5 rounded-full bg-[#ffd36a]" />
@@ -25,7 +25,7 @@ export function TerminalPreview() {
         </Text>
       </View>
 
-      <View className="overflow-hidden rounded-[22px] border border-white/6 bg-[#050816]/95 px-4 py-4">
+      <InsetPanel radius="card" tone="soft" padding="md" className="overflow-hidden border-white/6 bg-[#050816]/95">
         {PREVIEW_LINES.map((line, index) => (
           <Text
             key={`${line}-${index}`}
@@ -39,7 +39,7 @@ export function TerminalPreview() {
             {line || ' '}
           </Text>
         ))}
-      </View>
-    </LiquidGlassCard>
+      </InsetPanel>
+    </SectionCard>
   );
 }

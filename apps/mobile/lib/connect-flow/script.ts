@@ -250,7 +250,15 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
         target: 'connect-vortex',
         reduce: (context, event) =>
           event.type === 'CONNECTION_READY' && event.nonce === context.requestNonce
-            ? { connectionStatus: 'ready', resolvedConnection: context.pendingConnection }
+            ? {
+                connectionStatus: 'ready',
+                resolvedConnection: context.pendingConnection
+                  ? {
+                      ...context.pendingConnection,
+                      requiresPassword: Boolean(event.requiresPassword),
+                    }
+                  : null,
+              }
             : {},
       },
       CONNECTION_FAILED: {
@@ -275,7 +283,15 @@ export const connectFlowScript: Record<ConnectFlowStateId, ConnectFlowStateConfi
         target: 'connect-whiteout',
         reduce: (context, event) =>
           event.type === 'CONNECTION_READY' && event.nonce === context.requestNonce
-            ? { connectionStatus: 'ready', resolvedConnection: context.pendingConnection }
+            ? {
+                connectionStatus: 'ready',
+                resolvedConnection: context.pendingConnection
+                  ? {
+                      ...context.pendingConnection,
+                      requiresPassword: Boolean(event.requiresPassword),
+                    }
+                  : null,
+              }
             : {},
       },
       CONNECTION_FAILED: {

@@ -17,6 +17,15 @@ function isRzrLiveUrl(url: string): boolean {
 
 function routeRzrLiveUrl(url: string) {
   const parsed = new URL(url);
+
+  if (parsed.pathname === '/auth/verify') {
+    const token = parsed.searchParams.get('token');
+    if (token) {
+      router.push({ pathname: '/auth', params: { magic: token } });
+    }
+    return;
+  }
+
   const subdomain = parsed.hostname.split('.')[0] ?? 'Live bridge';
   const href = buildConnectHref({
     label: subdomain,

@@ -31,14 +31,14 @@ export function GlassSafeAreaView({ leftSlot, centerSlot, rightSlot, style }: Pr
       <GlassView
         glassEffectStyle="regular"
         tintColor="rgba(255,255,255,0.03)"
-        style={[styles.container, style]}>
+        style={[styles.container, styles.darkenedSurface, style]}>
         {content}
       </GlassView>
     );
   }
 
   return (
-    <BlurView intensity={60} tint="dark" style={[styles.container, style]}>
+    <BlurView intensity={60} tint="dark" style={[styles.container, styles.darkenedSurface, style]}>
       {content}
     </BlurView>
   );
@@ -53,5 +53,8 @@ const styles = StyleSheet.create({
     zIndex: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  darkenedSurface: {
+    backgroundColor: 'rgba(5,8,22,0.62)',
   },
 });

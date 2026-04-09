@@ -50,15 +50,50 @@ export function parseScannedConnection(rawValue: string): PreparedConnection {
   };
 }
 
+const VERIFY_RETRIES = 6;
+const VERIFY_RETRY_DELAY_MS = 2000;
+
 export async function verifyConnection(connection: PreparedConnection) {
   const parsedUrl = new URL(connection.normalizedUrl);
   const token = connection.token ?? parsedUrl.searchParams.get('token') ?? undefined;
   const headers: Record<string, string> = {};
   if (token) headers['x-rzr-token'] = token;
+  const endpoint = `${parsedUrl.origin}/api/session`;
 
-  const response = await fetch(`${parsedUrl.origin}/api/session`, { headers });
-  if (!response.ok) {
-    throw new Error(`Server returned ${response.status}`);
+  for (let attempt = 0; attempt <= VERIFY_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, { headers });
+    } catch {
+      if (attempt < VERIFY_RETRIES) {
+        await delay(VERIFY_RETRY_DELAY_MS);
+        continue;
+      }
+      throw new Error('Host is not reachable.');
+    }
+
+    if (response.status >= 500 && attempt < VERIFY_RETRIES) {
+      await delay(VERIFY_RETRY_DELAY_MS);
+      continue;
+    }
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (response.status === 401 && payload?.error === 'password required') {
+      return { passwordRequired: true };
+    }
+    if (!response.ok) {
+      if (response.status === 401 && payload?.error === 'invalid token') {
+        throw new Error('Invalid session token.');
+      }
+      throw new Error(payload?.error || `Server returned ${response.status}`);
+    }
+    return { passwordRequired: false };
   }
-  await response.json();
+
+  throw new Error('Host did not become ready in time.');
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

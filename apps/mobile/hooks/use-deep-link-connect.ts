@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 
-import { getParamValue } from '@/lib/utils';
-import { useSession } from '@/providers/session-provider';
+import { createSessionId, getParamValue, normalizeUrlWithToken } from '@/lib/utils';
+import { useSessionActions, useSessionList } from '@/hooks/use-session-data';
 import { type SessionAccent } from '@/types/session';
 
 export function useDeepLinkConnect(params: {
@@ -12,7 +12,8 @@ export function useDeepLinkConnect(params: {
   accent?: SessionAccent;
   passwordHint?: string;
 }) {
-  const { connectSession } = useSession();
+  const { connectSession, activateSession } = useSessionActions();
+  const { sessions } = useSessionList();
   const [error, setError] = useState<string | null>(null);
 
   const url = getParamValue(params.url);
@@ -28,15 +29,28 @@ export function useDeepLinkConnect(params: {
           throw new Error('Missing `url` in the incoming deep link.');
         }
 
-        connectSession({
-          label: label ?? 'Linked bridge',
-          url,
-          token,
-          accent: accent ?? 'cyan',
-          passwordHint,
-          source: 'deep-link',
+        const candidateUrl = normalizeUrlWithToken(url, token);
+        const candidateId = createSessionId(candidateUrl);
+        const existing = sessions.find((s) => s.id === candidateId);
+
+        const nextSessionId = existing
+          ? existing.id
+          : connectSession({
+              label: label ?? 'Linked bridge',
+              url,
+              token,
+              accent: accent ?? 'cyan',
+              passwordHint,
+              source: 'deep-link',
+            }).id;
+
+        if (existing) {
+          activateSession(existing.id);
+        }
+        router.replace({
+          pathname: '/(tabs)/sessions/[id]',
+          params: { id: nextSessionId },
         });
-        router.replace('/(tabs)/terminal');
       } catch (nextError) {
         setError(
           nextError instanceof Error
@@ -47,7 +61,7 @@ export function useDeepLinkConnect(params: {
     }, 420);
 
     return () => clearTimeout(timeout);
-  }, [url, label, token, accent, passwordHint, connectSession]);
+  }, [url, label, token, accent, passwordHint, connectSession, sessions, activateSession]);
 
   return { error };
 }

@@ -20,6 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ConnectSceneCanvas } from '@/components/connect/connect-scene-canvas';
+import { FieldPanel, InsetPanel } from '@/components/design-elements';
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { PremiumBackdrop } from '@/components/premium-backdrop';
 import { PremiumButton } from '@/components/premium-button';
@@ -34,6 +35,7 @@ import {
   type ConnectDraft,
   type ConnectFlowSnapshot,
 } from '@/lib/connect-flow/types';
+import { radii } from '@/lib/design-system';
 import { accentClasses, cx } from '@/lib/utils';
 import { Pressable, SafeAreaView, Text, TextInput, View } from '@/tw';
 
@@ -513,16 +515,13 @@ function ManualCardContent({
 function InputField(props: ComponentProps<typeof TextInput> & { label: string }) {
   const { label, ...inputProps } = props;
   return (
-    <View className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-      <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
-        {label}
-      </Text>
+    <FieldPanel label={label}>
       <TextInput
         {...inputProps}
         placeholderTextColor="rgba(255,255,255,0.28)"
         className="text-[15px] text-white"
       />
-    </View>
+    </FieldPanel>
   );
 }
 
@@ -556,7 +555,7 @@ function QrOverlay({
           Aim at a terminal QR code. Deep links and plain session URLs both work.
         </Text>
 
-        <View className="mt-4 overflow-hidden rounded-[26px] border border-white/10 bg-black/35">
+        <InsetPanel className="mt-4 overflow-hidden" radius="card" tone="elevated" padding="none">
           {permissionGranted ? (
             <CameraView
               style={{ height: 320 }}
@@ -583,12 +582,9 @@ function QrOverlay({
               />
             </View>
           )}
-        </View>
+        </InsetPanel>
 
-        <View className="mt-4 rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-          <Text className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/44">
-            Fallback
-          </Text>
+        <FieldPanel label="Fallback" className="mt-4">
           <TextInput
             value={manualValue}
             onChangeText={setManualValue}
@@ -598,7 +594,7 @@ function QrOverlay({
             autoCorrect={false}
             className="text-[15px] text-white"
           />
-        </View>
+        </FieldPanel>
 
         <View className="mt-5 flex-row gap-3">
           <PremiumButton
@@ -772,7 +768,7 @@ const styles = StyleSheet.create({
   tvFrame: {
     width: '88%',
     height: '56%',
-    borderRadius: 36,
+    borderRadius: radii.hero,
     borderWidth: 12,
     borderColor: '#1b1f2c',
     backgroundColor: 'rgba(8, 12, 20, 0.86)',
@@ -785,7 +781,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '82%',
     height: '50%',
-    borderRadius: 26,
+    borderRadius: radii.card,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -804,7 +800,7 @@ const styles = StyleSheet.create({
   },
   manualMorph: {
     overflow: 'hidden',
-    borderRadius: 22,
+    borderRadius: radii.card,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(15, 21, 36, 0.82)',

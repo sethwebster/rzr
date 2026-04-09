@@ -1,19 +1,36 @@
+/**
+ * Thin compatibility bridge over SessionDataManager.
+ *
+ * Preserves the existing useSession() API so all consumers work without changes.
+ * Under the hood, reads/writes go through the centralized SessionDataManager
+ * which handles SSE, gateway WebSocket, persistence, and batching.
+ */
 import {
   createContext,
-  useCallback,
   useContext,
   useMemo,
   type PropsWithChildren,
 } from 'react';
 
-import { useSessionPersistence } from '@/hooks/use-session-persistence';
-import { buildSession } from '@/lib/utils';
-import { type SessionAccent, type TerminalSession } from '@/types/session';
+import {
+  useRawSessionState,
+  useSessionActions,
+  useSessionManager,
+} from '@/hooks/use-session-data';
+import type { ClaimedRemoteSession } from '@/types/auth';
+import type {
+  SessionAccent,
+  SyncStatus,
+  TerminalLiveState,
+  TerminalSession,
+} from '@/types/session';
 
 type SessionDraft = {
   label?: string;
   url: string;
   token?: string;
+  authToken?: string;
+  liveState?: TerminalLiveState;
   passwordHint?: string;
   accent?: SessionAccent;
   source?: TerminalSession['source'];
@@ -25,59 +42,47 @@ type SessionContextValue = {
   activeSession: TerminalSession | null;
   connectSession: (draft: SessionDraft) => TerminalSession;
   activateSession: (sessionId: string) => void;
+  renameSession: (sessionId: string, nextLabel: string) => void;
   removeSession: (sessionId: string) => void;
   clearActiveSession: () => void;
+  syncClaimedSessions: (sessions: ClaimedRemoteSession[]) => void;
+  updateSessionRuntime: (
+    sessionId: string,
+    patch: {
+      authToken?: string;
+      liveState?: TerminalLiveState;
+      awaitingInput?: boolean;
+      lastStatusAt?: string;
+      previewScreen?: string;
+      previewLines?: string[];
+      syncStatus?: SyncStatus;
+    },
+  ) => void;
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: PropsWithChildren) {
-  const { state, update, hydrated } = useSessionPersistence();
-
-  const connectSession = useCallback((draft: SessionDraft) => {
-    const nextSession = buildSession(draft);
-    update((current) => {
-      const withoutMatch = current.sessions.filter((s) => s.id !== nextSession.id);
-      return {
-        sessions: [nextSession, ...withoutMatch].slice(0, 8),
-        activeSessionId: nextSession.id,
-      };
-    });
-    return nextSession;
-  }, [update]);
-
-  const activateSession = useCallback((sessionId: string) => {
-    update((current) => ({ ...current, activeSessionId: sessionId }));
-  }, [update]);
-
-  const removeSession = useCallback((sessionId: string) => {
-    update((current) => {
-      const sessions = current.sessions.filter((s) => s.id !== sessionId);
-      return {
-        sessions,
-        activeSessionId:
-          current.activeSessionId === sessionId ? sessions[0]?.id ?? null : current.activeSessionId,
-      };
-    });
-  }, [update]);
-
-  const clearActiveSession = useCallback(() => {
-    update((current) => ({ ...current, activeSessionId: null }));
-  }, [update]);
+  const state = useRawSessionState();
+  const actions = useSessionActions();
+  const manager = useSessionManager();
 
   const value = useMemo<SessionContextValue>(() => {
     const activeSession =
       state.sessions.find((s) => s.id === state.activeSessionId) ?? null;
     return {
-      hydrated,
+      hydrated: state.phase === 'ready',
       sessions: state.sessions,
       activeSession,
-      connectSession,
-      activateSession,
-      removeSession,
-      clearActiveSession,
+      connectSession: actions.connectSession,
+      activateSession: actions.activateSession,
+      renameSession: actions.renameSession,
+      removeSession: actions.removeSession,
+      clearActiveSession: actions.clearActiveSession,
+      syncClaimedSessions: () => {},
+      updateSessionRuntime: (sessionId, patch) => manager.updateSessionRuntime(sessionId, patch),
     };
-  }, [hydrated, state, connectSession, activateSession, removeSession, clearActiveSession]);
+  }, [state, actions, manager]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

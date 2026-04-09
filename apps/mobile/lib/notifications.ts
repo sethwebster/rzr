@@ -15,6 +15,23 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export type NotificationSetupState = {
+  permissionStatus: Notifications.PermissionStatus;
+  pushToken: string | null;
+  isDevice: boolean;
+  hasProjectId: boolean;
+  isConfigured: boolean;
+  message: string;
+};
+
+function getProjectId() {
+  return (
+    Constants.expoConfig?.extra?.eas?.projectId ??
+    Constants.easConfig?.projectId ??
+    undefined
+  );
+}
+
 export async function prepareNotificationsAsync() {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('rzr-live', {
@@ -34,31 +51,93 @@ export async function prepareNotificationsAsync() {
   return requested.status;
 }
 
-export async function registerForPushNotificationsAsync() {
-  const status = await prepareNotificationsAsync();
-  if (status !== 'granted') {
-    return { status, token: null as string | null };
+export async function getNotificationSetupStateAsync({
+  requestPermission = false,
+}: {
+  requestPermission?: boolean;
+} = {}): Promise<NotificationSetupState> {
+  const permissionStatus = requestPermission
+    ? await prepareNotificationsAsync()
+    : (await Notifications.getPermissionsAsync()).status;
+
+  if (permissionStatus !== 'granted') {
+    return {
+      permissionStatus,
+      pushToken: null,
+      isDevice: Device.isDevice,
+      hasProjectId: Boolean(getProjectId()),
+      isConfigured: false,
+      message:
+        permissionStatus === 'denied'
+          ? 'Notifications are blocked in system settings.'
+          : 'Notifications are not enabled yet.',
+    };
   }
 
   if (!Device.isDevice) {
-    return { status, token: null as string | null };
+    return {
+      permissionStatus,
+      pushToken: null,
+      isDevice: false,
+      hasProjectId: Boolean(getProjectId()),
+      isConfigured: false,
+      message: 'Notifications require a physical device.',
+    };
   }
 
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId ??
-    undefined;
-
+  const projectId = getProjectId();
   if (!projectId) {
-    return { status, token: null as string | null };
+    return {
+      permissionStatus,
+      pushToken: null,
+      isDevice: true,
+      hasProjectId: false,
+      isConfigured: false,
+      message: 'Notifications are permitted, but no Expo project ID is configured.',
+    };
   }
 
   try {
-    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    return { status, token };
+    const pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data ?? null;
+    if (!pushToken) {
+      return {
+        permissionStatus,
+        pushToken: null,
+        isDevice: true,
+        hasProjectId: true,
+        isConfigured: false,
+        message: 'Notifications are permitted, but no Expo push token is available yet.',
+      };
+    }
+
+    return {
+      permissionStatus,
+      pushToken,
+      isDevice: true,
+      hasProjectId: true,
+      isConfigured: true,
+      message: 'Notifications are set up.',
+    };
   } catch {
-    return { status, token: null as string | null };
+    return {
+      permissionStatus,
+      pushToken: null,
+      isDevice: true,
+      hasProjectId: true,
+      isConfigured: false,
+      message: 'Notifications are permitted, but Expo push token setup failed.',
+    };
   }
+}
+
+export async function registerForPushNotificationsAsync() {
+  const setup = await getNotificationSetupStateAsync({ requestPermission: true });
+  return {
+    status: setup.permissionStatus,
+    token: setup.pushToken,
+    isConfigured: setup.isConfigured,
+    message: setup.message,
+  };
 }
 
 export async function scheduleSessionReminderAsync(
