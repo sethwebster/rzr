@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { Pressable, Text, View } from '@/tw';
 import { InsetPanel } from '@/components/design-elements';
-import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { radii } from '@/lib/design-system';
 import { useSessionDraft } from '@/hooks/use-session-draft';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
@@ -91,9 +90,9 @@ export function ComposerV2({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [isFocused, setIsFocused] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [multilineMode, setMultilineMode] = useState(false);
   const inputRef = useRef<RNTextInput>(null);
   const suppressNextSubmitRef = useRef(false);
-  const keyboardVisible = useKeyboardVisible();
   const { sendInput, pressKey, uploadImage } = useTerminalApi(sessionUrl ?? '', token, auth);
   const uploadingImage = attachments.some((attachment) => attachment.status === 'uploading');
   const uploadedImagePaths = attachments
@@ -281,7 +280,7 @@ export function ComposerV2({
   };
 
   const handleKeyPress = (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-    if (event.nativeEvent.key !== 'Enter' || keyboardVisible) return;
+    if (event.nativeEvent.key !== 'Enter') return;
 
     const nativeEvent = event.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean };
 
@@ -300,7 +299,6 @@ export function ComposerV2({
       return;
     }
 
-    if (keyboardVisible) return;
     void handleSend();
   };
 
@@ -363,8 +361,9 @@ export function ComposerV2({
           autoCorrect={false}
           multiline
           textAlignVertical="top"
-          submitBehavior={keyboardVisible ? 'newline' : 'submit'}
-          onSubmitEditing={handleSubmitEditing}
+          returnKeyType={multilineMode ? 'default' : 'send'}
+          submitBehavior={multilineMode ? 'newline' : 'submit'}
+          onSubmitEditing={multilineMode ? undefined : handleSubmitEditing}
           style={{
             flex: 1,
             color: '#fff',
@@ -514,6 +513,20 @@ export function ComposerV2({
       <View
         className="flex-row items-center gap-1.5 py-2.5"
         style={{ paddingHorizontal: compactControls ? 14 : 12 }}>
+        <TapButton
+          onPress={() => {
+            setMultilineMode((current) => !current);
+            if (inputRef.current?.isFocused()) {
+              inputRef.current.blur();
+              setTimeout(() => inputRef.current?.focus(), 0);
+            }
+          }}
+          style={multilineMode ? { ...keyPillStyle, borderColor: 'rgba(124,246,255,0.45)', backgroundColor: 'rgba(124,246,255,0.12)' } : keyPillStyle}>
+          <Text className={cx('text-[11px] font-semibold', multilineMode ? 'text-rzr-cyan' : 'text-white/52')}>
+            ↵
+          </Text>
+        </TapButton>
+
         {QUICK_KEYS.map(({ label, key, danger }) => (
           <TapButton
             key={key}
