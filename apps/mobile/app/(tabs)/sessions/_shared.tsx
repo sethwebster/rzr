@@ -11,6 +11,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   runOnJS,
+  useAnimatedStyle,
 } from 'react-native-reanimated';
 import { Text, View } from '@/tw';
 import { WebView } from 'react-native-webview';
@@ -361,6 +362,7 @@ function ActiveTerminalSessionSurface({
     handleRadialMessage(event);
   };
   const {
+    keyboard,
     detentIndex: composerDetentIndex,
     animStyle: composerAnimStyle,
     gesture: composerSheetGesture,
@@ -368,6 +370,10 @@ function ActiveTerminalSessionSurface({
   } = useComposerSheet(webViewRef, session?.id, insets.bottom);
   const headerHeight = insets.top + 80;
   const composerReservedHeight = COMPOSER_DETENTS[0];
+
+  const terminalKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboard.height.value }],
+  }));
 
   const dismissToHome = useCallback(() => {
     clearActiveSession();
@@ -532,38 +538,40 @@ function ActiveTerminalSessionSurface({
 
           {!sessionLocked ? (
             <View style={StyleSheet.absoluteFillObject}>
-              {useExpoSwiftTerm ? (
-                <GestureDetector gesture={radialPanGesture}>
-                  <View style={styles.webview}>
-                    <SwiftTerminalSessionViewer
-                      sessionUrl={session.url}
-                      authToken={session.authToken}
-                      instanceKey={terminalInstanceKey}
-                      style={StyleSheet.absoluteFillObject}
-                      onConnectionFailed={() => setTunnelOffline(true)}
-                    />
-                  </View>
-                </GestureDetector>
-              ) : (
-                <TerminalSessionViewer
-                  sessionUrl={webviewUrl}
-                  authToken={session.authToken}
-                  instanceKey={terminalInstanceKey}
-                  webViewRef={webViewRef}
-                  headerHeight={headerHeight}
-                  composerReservedHeight={composerReservedHeight}
-                  radialEnabled={radialEnabled}
-                  onLoadEnd={onWebViewLoad}
-                  onError={() => setTunnelOffline(true)}
-                  onHttpError={(code) => {
-                    if (code >= 502) setTunnelOffline(true);
-                  }}
-                  onTunnelDead={() => setTunnelOffline(true)}
-                  onMessage={handleWebMessage}
-                  style={styles.webview}
-                  textInteractionEnabled={false}
-                />
-              )}
+              <Animated.View style={[StyleSheet.absoluteFillObject, terminalKeyboardStyle]}>
+                {useExpoSwiftTerm ? (
+                  <GestureDetector gesture={radialPanGesture}>
+                    <View style={styles.webview}>
+                      <SwiftTerminalSessionViewer
+                        sessionUrl={session.url}
+                        authToken={session.authToken}
+                        instanceKey={terminalInstanceKey}
+                        style={StyleSheet.absoluteFillObject}
+                        onConnectionFailed={() => setTunnelOffline(true)}
+                      />
+                    </View>
+                  </GestureDetector>
+                ) : (
+                  <TerminalSessionViewer
+                    sessionUrl={webviewUrl}
+                    authToken={session.authToken}
+                    instanceKey={terminalInstanceKey}
+                    webViewRef={webViewRef}
+                    headerHeight={headerHeight}
+                    composerReservedHeight={composerReservedHeight}
+                    radialEnabled={radialEnabled}
+                    onLoadEnd={onWebViewLoad}
+                    onError={() => setTunnelOffline(true)}
+                    onHttpError={(code) => {
+                      if (code >= 502) setTunnelOffline(true);
+                    }}
+                    onTunnelDead={() => setTunnelOffline(true)}
+                    onMessage={handleWebMessage}
+                    style={styles.webview}
+                    textInteractionEnabled={false}
+                  />
+                )}
+              </Animated.View>
 
               {radialEnabled ? <RadialMenu ref={radialMenuRef} onAction={pressKey} /> : null}
 
