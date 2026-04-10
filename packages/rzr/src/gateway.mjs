@@ -224,6 +224,25 @@ export async function sendTestPush({
   });
 }
 
+export async function claimRemoteSession({
+  baseUrl,
+  accessToken,
+  slug,
+  label,
+}) {
+  return postGatewayJsonWithHeaders({
+    baseUrl,
+    path: "/api/account/sessions/claim",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: {
+      slug,
+      label,
+    },
+  });
+}
+
 export async function requestRemoteMagicLink({
   baseUrl,
   email,

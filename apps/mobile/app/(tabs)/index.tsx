@@ -7,10 +7,13 @@ import { HeaderWithContentScreen } from '@/components/header-with-content-screen
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { PremiumButton } from '@/components/premium-button';
 import { useActiveSession, useRawSessionState, useSessionActions, useSessionManager } from '@/hooks/use-session-data';
-import { useAuth } from '@/providers/auth-provider';
 import { Pressable, Text, View } from '@/tw';
 import { SessionStatusDot } from '@/components/session-status-dot';
 import { formatRelativeTime } from '@/lib/utils';
+
+function byRecentConnection(left: { lastConnectedAt: string }, right: { lastConnectedAt: string }) {
+  return (right.lastConnectedAt ?? '').localeCompare(left.lastConnectedAt ?? '');
+}
 
 export default function HomeScreen() {
   const { sessions, phase } = useRawSessionState();
@@ -22,7 +25,10 @@ export default function HomeScreen() {
   const recentSessionRefs = useRef<Record<string, RNView | null>>({});
   const [refreshing, setRefreshing] = useState(false);
   const recentSessions = hydrated
-    ? sessions.filter((session) => session.id !== activeSession?.id).slice(0, 4)
+    ? sessions
+        .filter((session) => session.id !== activeSession?.id)
+        .sort(byRecentConnection)
+        .slice(0, 4)
     : [];
 
   const openTerminalFromRef = (sessionId: string, target: RNView | null) => {

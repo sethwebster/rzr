@@ -6,6 +6,8 @@ export interface ExpoSwiftTermNativeProps extends ViewProps {
     backgroundColor?: string;
     /** Internal: sequence-tagged data packet for feeding the terminal */
     feedPacket?: string;
+    /** Internal: sequence-tagged scroll packet "<seq>:<cumulativeDeltaY>". */
+    scrollPacket?: string;
     onData?: (event: {
         nativeEvent: {
             data: string;
@@ -60,5 +62,7 @@ export interface ExpoSwiftTermRef {
     write(data: string): void;
     /** Write a UTF-8 string to the terminal */
     writeText(text: string): void;
+    /** Scroll the viewport by `delta` points (negative = toward older content). */
+    scrollBy(delta: number): void;
 }
 //# sourceMappingURL=ExpoSwiftTerm.types.d.ts.map

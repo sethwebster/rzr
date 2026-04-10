@@ -4,22 +4,38 @@ import { Platform, StyleSheet, type StyleProp, type ViewStyle } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { View } from '@/tw';
+import { cx } from '@/lib/utils';
 
 type Props = {
   leftSlot?: ReactNode;
   centerSlot?: ReactNode;
   rightSlot?: ReactNode;
   style?: StyleProp<ViewStyle>;
+  topPadding?: number | null;
+  noInset?: boolean;
+  contentClassName?: string;
 };
 
-export function GlassSafeAreaView({ leftSlot, centerSlot, rightSlot, style }: Props) {
+export function GlassSafeAreaView({
+  leftSlot,
+  centerSlot,
+  rightSlot,
+  style,
+  topPadding = 10,
+  noInset = false,
+  contentClassName,
+}: Props) {
   const insets = useSafeAreaInsets();
   const supportsGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
   const content = (
     <View
-      className="flex-row items-center px-5 pb-3"
-      style={{ paddingTop: insets.top + 10 }}>
+      className={cx('flex-row items-center px-5 pb-3', contentClassName)}
+      style={{
+        ...(topPadding == null
+          ? {}
+          : { paddingTop: (noInset ? 0 : insets.top) + topPadding }),
+      }}>
       <View className="min-w-[48px] items-start justify-center">{leftSlot}</View>
       <View className="flex-1 items-center justify-center">{centerSlot}</View>
       <View className="min-w-[48px] items-end justify-center">{rightSlot}</View>

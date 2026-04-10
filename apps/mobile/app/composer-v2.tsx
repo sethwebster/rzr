@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { Keyboard, Pressable as RNPressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -93,14 +93,18 @@ export default function ComposerV2Screen() {
     };
   }, [insets.bottom, keyboardOffset, viewportHeight]);
 
-  const dismissKeyboard = () => {
+  const dismissKeyboard = useCallback(() => {
     Keyboard.dismiss();
-  };
+  }, []);
+
+  const goBack = useCallback(() => {
+    router.back();
+  }, []);
 
   const dismiss = () => {
     dismissKeyboard();
     progress.value = withTiming(0, { duration: 180 }, (finished) => {
-      if (finished) runOnJS(router.back)();
+      if (finished) runOnJS(goBack)();
     });
   };
 

@@ -165,7 +165,7 @@ export function useTerminalApi(sessionUrl: string, token?: string, auth?: string
 
   const sendInput = useCallback(
     async (text: string, pressEnter: boolean) => {
-      if (!text.trim()) return;
+      if (!text.length) return;
       try {
         const response = await fetch(`${base}/api/input`, {
           method: 'POST',

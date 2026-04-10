@@ -26,6 +26,10 @@ public class ExpoSwiftTermModule: Module {
       Prop("feedPacket") { (view: ExpoSwiftTermView, packet: String) in
         view.handleFeedPacket(packet)
       }
+
+      Prop("scrollPacket") { (view: ExpoSwiftTermView, packet: String) in
+        view.handleScrollPacket(packet)
+      }
     }
   }
 }

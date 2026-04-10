@@ -34,6 +34,11 @@ export default function SignalsScreen() {
     setUseExpoSwiftTerm,
     liveActivityEnabled,
     setLiveActivityEnabled,
+    immediateModeEnabled,
+    setImmediateModeEnabled,
+    notificationPrefs,
+    setNotificationPref,
+    setIdleLevelPref,
   } = useTerminalSettings();
   const { signals, loading: signalsLoading } = useSessionSignals(activeSession);
   const {
@@ -253,16 +258,27 @@ export default function SignalsScreen() {
         title="Experience"
         description="Control rendering and live presence behavior.">
         <SettingToggleRow
-          title="Use ExpoSwiftTerm"
-          description="Prefer the native terminal renderer when supported."
-          value={useExpoSwiftTerm}
-          onValueChange={setUseExpoSwiftTerm}
-        />
-        <SettingToggleRow
           title="Enable Live Activity"
           description="Show active sessions on the Lock Screen and Dynamic Island."
           value={liveActivityEnabled}
           onValueChange={setLiveActivityEnabled}
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Experimental"
+        description="Opt into in-progress features. Expect rough edges.">
+        <SettingToggleRow
+          title="Immediate mode"
+          description="Stream keystrokes to the session as you type, byte-for-byte."
+          value={immediateModeEnabled}
+          onValueChange={setImmediateModeEnabled}
+        />
+        <SettingToggleRow
+          title="Swift terminal"
+          description="Render sessions with the native ExpoSwiftTerm backend."
+          value={useExpoSwiftTerm}
+          onValueChange={setUseExpoSwiftTerm}
           className="mt-3"
         />
       </SettingsSection>
@@ -306,6 +322,51 @@ export default function SignalsScreen() {
             <Text className="mt-2 text-[12px] leading-5 text-white/52">{pushToken}</Text>
           ) : null}
         </InsetPanel>
+
+        <View className="mt-4">
+          <Text className="text-[11px] uppercase tracking-[0.16em] text-white/42">
+            Categories
+          </Text>
+          <SettingToggleRow
+            title="Idle sessions"
+            description="Ping me when a claimed session goes idle."
+            value={notificationPrefs.idle}
+            onValueChange={(value) => setNotificationPref('idle', value)}
+            className="mt-2"
+          />
+          {notificationPrefs.idle ? (
+            <View className="mt-2 gap-2 pl-3">
+              <Text className="text-[11px] uppercase tracking-[0.16em] text-white/34">
+                Levels
+              </Text>
+              <SettingToggleRow
+                title="After 5 minutes"
+                description="First nudge once a session sits idle."
+                value={notificationPrefs.idleLevels['5m']}
+                onValueChange={(value) => setIdleLevelPref('5m', value)}
+              />
+              <SettingToggleRow
+                title="After 30 minutes"
+                description="Follow-up while the session is still waiting."
+                value={notificationPrefs.idleLevels['30m']}
+                onValueChange={(value) => setIdleLevelPref('30m', value)}
+              />
+              <SettingToggleRow
+                title="After 2h 30m"
+                description="Long-idle reminder before auto-expiry approaches."
+                value={notificationPrefs.idleLevels['2h30m']}
+                onValueChange={(value) => setIdleLevelPref('2h30m', value)}
+              />
+            </View>
+          ) : null}
+          <SettingToggleRow
+            title="Terminated sessions"
+            description="Ping me when a session expires or is killed."
+            value={notificationPrefs.terminated}
+            onValueChange={(value) => setNotificationPref('terminated', value)}
+            className="mt-3"
+          />
+        </View>
 
         <InsetPanel className="mt-4" radius="panel" tone="soft" padding="md">
           <View className="flex-row items-start justify-between gap-3">

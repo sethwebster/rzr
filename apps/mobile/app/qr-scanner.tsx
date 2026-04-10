@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Link, router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, InteractionManager, StyleSheet } from 'react-native';
 import {
   Canvas,
@@ -29,6 +29,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const CAMERA_PANEL_HEIGHT = 320;
 const CAMERA_MOUNT_DELAY_MS = 120;
 const CAMERA_CROSSFADE_MS = 220;
+const CAMERA_TEARDOWN_SETTLE_MS = 180;
 const REVEAL_DURATION_MS = 520;
 
 type QrScannerParams = {
@@ -43,9 +44,13 @@ function readNumberParam(value: string | string[] | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function QrScannerScreen() {
   const permissionHandledRef = useRef(false);
-  const { connectSession, activateSession } = useSessionActions();
+  const { connectSession } = useSessionActions();
   const { sessions } = useSessionList();
   const [permission, requestPermission] = useCameraPermissions();
   const params = useLocalSearchParams<QrScannerParams>();
@@ -53,6 +58,9 @@ export default function QrScannerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [cameraMounted, setCameraMounted] = useState(false);
+  const [scannerPaused, setScannerPaused] = useState(false);
+  const revealMountedRef = useRef(true);
+  const canUsePastedCode = manualValue.trim().length > 0 && !submitting;
 
   const originX = readNumberParam(params.originX);
   const originY = readNumberParam(params.originY);
@@ -91,7 +99,14 @@ export default function QrScannerScreen() {
     opacity: placeholderOpacity.value,
   }));
 
+  const completeReveal = useCallback(() => {
+    if (!revealMountedRef.current) return;
+    setRevealSettled(true);
+  }, []);
+
   useEffect(() => {
+    revealMountedRef.current = true;
+
     if (!shouldAnimateReveal) {
       setRevealSettled(true);
       return;
@@ -105,7 +120,7 @@ export default function QrScannerScreen() {
       },
       (finished) => {
         if (finished) {
-          runOnJS(setRevealSettled)(true);
+          runOnJS(completeReveal)();
         }
       },
     );
@@ -116,14 +131,14 @@ export default function QrScannerScreen() {
         easing: Easing.out(Easing.quad),
       }),
     );
-  }, [revealRadius, shouldAnimateReveal, wipeRadius, wipeRingOpacity]);
+  }, [completeReveal, revealRadius, shouldAnimateReveal, wipeRadius, wipeRingOpacity]);
 
   useEffect(() => {
     cameraOpacity.value = 0;
     placeholderOpacity.value = 1;
     setCameraMounted(false);
 
-    if (!permission?.granted || !revealSettled) {
+    if (!permission?.granted || !revealSettled || scannerPaused) {
       return;
     }
 
@@ -144,7 +159,14 @@ export default function QrScannerScreen() {
         clearTimeout(timeoutId);
       }
     };
-  }, [cameraOpacity, permission?.granted, placeholderOpacity, revealSettled]);
+  }, [cameraOpacity, permission?.granted, placeholderOpacity, revealSettled, scannerPaused]);
+
+  useEffect(
+    () => () => {
+      revealMountedRef.current = false;
+    },
+    [],
+  );
 
   const handleCameraReady = () => {
     cameraOpacity.value = withTiming(1, {
@@ -165,36 +187,39 @@ export default function QrScannerScreen() {
       setSubmitting(true);
       setError(null);
 
+      if (cameraMounted) {
+        setScannerPaused(true);
+        setCameraMounted(false);
+        cameraOpacity.value = 0;
+        placeholderOpacity.value = 1;
+        await wait(CAMERA_TEARDOWN_SETTLE_MS);
+      }
+
       const connection = parseScannedConnection(trimmed);
       const candidateUrl = normalizeUrlWithToken(connection.normalizedUrl, connection.token);
       const candidateId = createSessionId(candidateUrl);
       const existing = sessions.find((s) => s.id === candidateId);
 
-      if (existing) {
-        activateSession(existing.id);
-        router.replace({
-          pathname: '/(tabs)/sessions/[id]',
-          params: { id: existing.id },
-        });
-        return;
-      }
-
+      const verification = await verifyConnection(connection);
+      const authoritativeLabel = verification.label ?? existing?.label ?? connection.label;
       if (
         sessions.some(
-          (item) => item.label === connection.label && item.url !== connection.normalizedUrl,
+          (item) =>
+            item.id !== candidateId &&
+            item.label === authoritativeLabel &&
+            item.url !== connection.normalizedUrl,
         )
       ) {
-        throw new Error(`A session labeled "${connection.label}" already exists.`);
+        throw new Error(`A session labeled "${authoritativeLabel}" already exists.`);
       }
-
-      const verification = await verifyConnection(connection);
       const nextSession = connectSession({
-        label: connection.label,
+        label: authoritativeLabel,
         url: connection.normalizedUrl,
         token: connection.token,
+        authToken: existing?.authToken,
         passwordHint: connection.passwordHint,
         accent: connection.accent,
-        liveState: verification.passwordRequired ? 'locked' : undefined,
+        liveState: verification.passwordRequired && !existing?.authToken ? 'locked' : undefined,
         source: connection.source,
       });
       router.replace({
@@ -203,6 +228,7 @@ export default function QrScannerScreen() {
       });
     } catch (nextError) {
       permissionHandledRef.current = false;
+      setScannerPaused(false);
       setError(
         nextError instanceof Error ? nextError.message : 'Unable to connect that session.',
       );
@@ -226,15 +252,19 @@ export default function QrScannerScreen() {
                       facing="back"
                       barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
                       onCameraReady={handleCameraReady}
-                      onBarcodeScanned={({ data }) => {
-                        if (typeof data !== 'string') {
-                          setError('Could not read that QR code.');
-                          return;
-                        }
-                        if (permissionHandledRef.current || submitting) return;
-                        permissionHandledRef.current = true;
-                        void launchFromValue(data);
-                      }}
+                      onBarcodeScanned={
+                        scannerPaused
+                          ? undefined
+                          : ({ data }) => {
+                              if (typeof data !== 'string') {
+                                setError('Could not read that QR code.');
+                                return;
+                              }
+                              if (permissionHandledRef.current || submitting) return;
+                              permissionHandledRef.current = true;
+                              void launchFromValue(data);
+                            }
+                      }
                     />
                   </Animated.View>
                 ) : null}
@@ -299,9 +329,14 @@ export default function QrScannerScreen() {
                 permissionHandledRef.current = false;
                 void launchFromValue(manualValue);
               }}
+              disabled={!canUsePastedCode}
               className="flex-1"
               label={submitting ? 'Connecting…' : 'Use pasted code'}
               tone="primary"
+              style={({ pressed }) => ({
+                opacity: !canUsePastedCode ? 0.45 : pressed ? 0.82 : 1,
+                transform: [{ scale: !canUsePastedCode ? 1 : pressed ? 0.96 : 1 }],
+              })}
             />
           </View>
         </ScrollView>

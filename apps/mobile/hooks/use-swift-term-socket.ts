@@ -25,6 +25,44 @@ function decodeBase64(base64: string) {
   return new TextDecoder().decode(bytes);
 }
 
+// Encode a JS string (UTF-16) to a UTF-8 base64 string suitable for the
+// SwiftTerm native bridge's binary feed path. Going through bytes avoids any
+// string-escaping roundtrip issues through JSON / RN prop marshalling that
+// could silently drop or corrupt control characters (ESC 0x1b, CR 0x0d, etc).
+function encodeUtf8Base64(text: string): string {
+  const bytes: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    let c = text.charCodeAt(i);
+    if (c < 0x80) {
+      bytes.push(c);
+    } else if (c < 0x800) {
+      bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    } else if ((c & 0xfc00) === 0xd800 && i + 1 < text.length) {
+      // Surrogate pair
+      const c2 = text.charCodeAt(i + 1);
+      if ((c2 & 0xfc00) === 0xdc00) {
+        i += 1;
+        const code = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
+        bytes.push(
+          0xf0 | (code >> 18),
+          0x80 | ((code >> 12) & 0x3f),
+          0x80 | ((code >> 6) & 0x3f),
+          0x80 | (code & 0x3f),
+        );
+      } else {
+        bytes.push(0xef, 0xbf, 0xbd); // replacement char
+      }
+    } else {
+      bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+  }
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  const encode = globalThis.btoa;
+  if (typeof encode !== 'function') return '';
+  return encode(binary);
+}
+
 function translateInputPayload(text: string) {
   switch (text) {
     case '\r':
@@ -64,6 +102,13 @@ export function useSwiftTermSocket(
   const [statusMessage, setStatusMessage] = useState('Connecting native terminal…');
   const failCountRef = useRef(0);
   const didConnectRef = useRef(false);
+  const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  // Latch the latest onConnectionFailed into a ref so the effect below never
+  // has to re-run when the parent re-renders with a new inline callback. A
+  // re-run would tear down the WebSocket and force a fresh ready+snapshot,
+  // which manifests as random screen clears during normal interaction.
+  const onConnectionFailedRef = useRef(onConnectionFailed);
+  onConnectionFailedRef.current = onConnectionFailed;
 
   useEffect(() => {
     let cancelled = false;
@@ -95,14 +140,15 @@ export function useSwiftTermSocket(
         if (cancelled) return;
         failCountRef.current = 0;
         setStatusMessage('Connecting native terminal…');
-        socket.send(JSON.stringify({ type: 'connect', cols: 80, rows: 24 }));
+        const size = pendingSizeRef.current ?? { cols: 80, rows: 24 };
+        socket.send(JSON.stringify({ type: 'connect', cols: size.cols, rows: size.rows }));
 
         // If we don't get 'ready' within 8s of open, treat as unreachable
         readyTimer = setTimeout(() => {
           if (cancelled || didConnectRef.current) return;
           setStatusMessage('Session unreachable.');
           socket.close();
-          onConnectionFailed?.();
+          onConnectionFailedRef.current?.();
         }, 8000);
       });
 
@@ -121,16 +167,18 @@ export function useSwiftTermSocket(
             clearReadyTimer();
             didConnectRef.current = true;
             const screen = String(payload?.snapshot?.screen || '');
-            const lines = screen.split(/\r?\n/);
-            const positioned = lines
-              .map((line: string, i: number) => `\u001b[${i + 1};1H\u001b[2K${line}`)
-              .join('');
-            terminalRef.current?.writeText(positioned);
+            // SGR reset → clear screen → home cursor → feed tmux `-e` capture
+            // → SGR reset again. Use the binary feed path so control bytes
+            // (ESC, CR, etc.) are never string-escaped through JSON / RN
+            // prop marshalling — they go straight through as raw UTF-8 bytes.
+            terminalRef.current?.write(
+              encodeUtf8Base64(`\u001b[0m\u001b[2J\u001b[H${screen}\u001b[0m`),
+            );
             break;
           }
           case 'output':
             if (payload.data) {
-              terminalRef.current?.writeText(String(payload.data));
+              terminalRef.current?.write(encodeUtf8Base64(String(payload.data)));
             }
             break;
           case 'runtime-close':
@@ -151,7 +199,7 @@ export function useSwiftTermSocket(
         failCountRef.current += 1;
         if (!didConnectRef.current && failCountRef.current >= 3) {
           setStatusMessage('Session unreachable.');
-          onConnectionFailed?.();
+          onConnectionFailedRef.current?.();
           return;
         }
         clearReconnect();
@@ -171,7 +219,9 @@ export function useSwiftTermSocket(
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [socketUrl, terminalRef, onConnectionFailed]);
+    // terminalRef is a stable ref; onConnectionFailed is latched via the ref above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socketUrl]);
 
   const sendPayload = useCallback((payload: object) => {
     const socket = socketRef.current;
@@ -192,6 +242,7 @@ export function useSwiftTermSocket(
 
   const handleResize = useCallback((cols: number, rows: number) => {
     if (cols > 0 && rows > 0) {
+      pendingSizeRef.current = { cols, rows };
       sendPayload({ type: 'resize', cols, rows });
     }
   }, [sendPayload]);

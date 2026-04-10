@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 
+import { verifyConnection } from '@/lib/connect-flow/connection';
 import { createSessionId, getParamValue, normalizeUrlWithToken } from '@/lib/utils';
 import { useSessionActions, useSessionList } from '@/hooks/use-session-data';
 import { type SessionAccent } from '@/types/session';
@@ -12,7 +13,7 @@ export function useDeepLinkConnect(params: {
   accent?: SessionAccent;
   passwordHint?: string;
 }) {
-  const { connectSession, activateSession } = useSessionActions();
+  const { connectSession } = useSessionActions();
   const { sessions } = useSessionList();
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +25,7 @@ export function useDeepLinkConnect(params: {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
+      void (async () => {
       try {
         if (!url) {
           throw new Error('Missing `url` in the incoming deep link.');
@@ -32,21 +34,27 @@ export function useDeepLinkConnect(params: {
         const candidateUrl = normalizeUrlWithToken(url, token);
         const candidateId = createSessionId(candidateUrl);
         const existing = sessions.find((s) => s.id === candidateId);
+        const verification = await verifyConnection({
+          label: label ?? existing?.label ?? 'Linked bridge',
+          remoteUrl: candidateUrl,
+          normalizedUrl: candidateUrl,
+          token,
+          accent: accent ?? existing?.accent ?? 'cyan',
+          passwordHint: passwordHint ?? existing?.passwordHint ?? '',
+          source: 'qr',
+        });
+        const authoritativeLabel = verification.label ?? existing?.label ?? label ?? 'Linked bridge';
 
-        const nextSessionId = existing
-          ? existing.id
-          : connectSession({
-              label: label ?? 'Linked bridge',
-              url,
-              token,
-              accent: accent ?? 'cyan',
-              passwordHint,
-              source: 'deep-link',
-            }).id;
-
-        if (existing) {
-          activateSession(existing.id);
-        }
+        const nextSessionId = connectSession({
+          label: authoritativeLabel,
+          url,
+          token,
+          authToken: existing?.authToken,
+          accent: accent ?? existing?.accent ?? 'cyan',
+          passwordHint: passwordHint ?? existing?.passwordHint,
+          liveState: existing?.liveState,
+          source: 'deep-link',
+        }).id;
         router.replace({
           pathname: '/(tabs)/sessions/[id]',
           params: { id: nextSessionId },
@@ -58,10 +66,11 @@ export function useDeepLinkConnect(params: {
             : 'Unable to open the session.',
         );
       }
+      })();
     }, 420);
 
     return () => clearTimeout(timeout);
-  }, [url, label, token, accent, passwordHint, connectSession, sessions, activateSession]);
+  }, [url, label, token, accent, passwordHint, connectSession, sessions]);
 
   return { error };
 }

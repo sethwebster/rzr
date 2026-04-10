@@ -371,11 +371,39 @@ export async function deleteLaPushToken(accessToken: string, deviceId: string) {
   return readJson(response);
 }
 
-export async function registerExpoPushToken(accessToken: string, deviceId: string, pushToken: string) {
+export type NotificationPrefsPayload = {
+  idle?: boolean;
+  terminated?: boolean;
+  idleLevels?: {
+    '5m'?: boolean;
+    '30m'?: boolean;
+    '2h30m'?: boolean;
+  };
+};
+
+export async function registerExpoPushToken(
+  accessToken: string,
+  deviceId: string,
+  pushToken: string,
+  notificationPrefs?: NotificationPrefsPayload,
+) {
   const response = await fetch(`${getGatewayBaseUrl()}/api/account/expo-push-token`, {
     method: 'POST',
     headers: { ...authHeaders(accessToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceId, pushToken }),
+    body: JSON.stringify({ deviceId, pushToken, notificationPrefs }),
+  });
+  return readJson(response);
+}
+
+export async function updateNotificationPrefs(
+  accessToken: string,
+  deviceId: string,
+  notificationPrefs: NotificationPrefsPayload,
+) {
+  const response = await fetch(`${getGatewayBaseUrl()}/api/account/notification-prefs`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(accessToken), 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId, notificationPrefs }),
   });
   return readJson(response);
 }

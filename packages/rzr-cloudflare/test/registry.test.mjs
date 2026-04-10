@@ -5,6 +5,7 @@ import { SessionRegistry } from "../src/index.mjs";
 
 function createStorage() {
   const data = new Map();
+  let alarmAt = null;
   return {
     async get(key) {
       return data.get(key);
@@ -14,6 +15,15 @@ function createStorage() {
     },
     async delete(key) {
       data.delete(key);
+    },
+    async setAlarm(nextAt) {
+      alarmAt = nextAt;
+    },
+    async deleteAlarm() {
+      alarmAt = null;
+    },
+    get alarmAt() {
+      return alarmAt;
     },
   };
 }
@@ -94,4 +104,81 @@ test("SessionRegistry degrades stale heartbeat presence while keeping session av
   assert.equal(peek.status, 200);
   assert.equal(peek.payload.presence.state, "degraded");
   assert.equal(peek.payload.presence.latestStatus.activity.state, "awaiting_input");
+});
+
+
+test("SessionRegistry idle push prefers claimed_label over the session target", async () => {
+  const storage = createStorage();
+  const sentBodies = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (_url, init) => {
+    if (init?.body) {
+      sentBodies.push(...JSON.parse(init.body));
+    }
+    return new Response(JSON.stringify({ data: [{ status: 'ok' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  const env = {
+    AUTH_DB: {
+      prepare(query) {
+        return {
+          bind(value) {
+            return {
+              async first() {
+                if (query.includes('SELECT user_id, claimed_label, target FROM gateway_sessions')) {
+                  assert.equal(value, 'demo');
+                  return { user_id: 'user-1', claimed_label: 'Night Shift', target: 'session-abc' };
+                }
+                throw new Error(`unexpected first query: ${query}`);
+              },
+              async all() {
+                if (query.includes('FROM expo_push_tokens')) {
+                  assert.equal(value, 'user-1');
+                  return {
+                    results: [
+                      { push_token: 'ExponentPushToken[test]', notification_prefs: null },
+                    ],
+                  };
+                }
+                throw new Error(`unexpected all query: ${query}`);
+              },
+              async run() {
+                return { success: true };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+
+  try {
+    const registry = new SessionRegistry({ storage }, env);
+    await storage.put('session', {
+      slug: 'demo',
+      upstream: 'https://demo.trycloudflare.com',
+      target: 'session-abc',
+      provider: 'cloudflare',
+      idleTimeoutMs: 24 * 60 * 60 * 1000,
+      heartbeatTimeoutMs: 10_000,
+      createdAt: Date.now() - 60_000,
+      lastSeenAt: Date.now(),
+      lastHeartbeatAt: Date.now(),
+      latestStatus: { activity: { state: 'idle' } },
+      idleSince: Date.now() - 6 * 60_000,
+      notifiedTiers: [],
+    });
+
+    await registry.alarm();
+
+    assert.equal(sentBodies.length, 1);
+    assert.equal(sentBodies[0].body, 'Your session "Night Shift" is idle.');
+    const updated = await storage.get('session');
+    assert.deepEqual(updated.notifiedTiers, ['5m']);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

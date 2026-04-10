@@ -22,10 +22,10 @@ import type { TerminalSession } from '@/types/session';
 type Props = {
   session: TerminalSession;
   compact?: boolean;
-  arming?: boolean;
-  armCycle?: number;
+  active?: boolean;
   disabled?: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
 };
 
 const GLOW_STOPS = [0, 0.16, 0.32, 0.5, 0.68, 0.84, 1] as const;
@@ -82,23 +82,18 @@ function getPreviewLines(session: TerminalSession) {
 export function SessionCard({
   session,
   compact,
-  arming = false,
-  armCycle = 0,
+  active = false,
   disabled = false,
   onPress,
+  onLongPress,
 }: Props) {
   const previewLines = getPreviewLines(session);
   const charge = useSharedValue(0);
 
   useEffect(() => {
-    if (arming) {
-      charge.value = withTiming(1, { duration: 900 });
-      return;
-    }
-
     cancelAnimation(charge);
-    charge.value = withTiming(0, { duration: 220 });
-  }, [arming, armCycle, charge]);
+    charge.value = withTiming(active ? 1 : 0, { duration: active ? 220 : 180 });
+  }, [active, charge]);
 
   const progressHaloStyle = useAnimatedStyle(() => ({
     opacity: interpolate(charge.value, [0, 1], [0.16, 1]),
@@ -148,6 +143,7 @@ export function SessionCard({
       <Pressable
         disabled={disabled}
         onPress={onPress}
+        onLongPress={onLongPress}
         style={({ pressed }) => (pressed || disabled ? { opacity: 0.88 } : null)}>
         <Animated.View style={styles.shell}>
           <Animated.View pointerEvents="none" style={[styles.halo, progressHaloStyle]} />
@@ -180,6 +176,7 @@ export function SessionCard({
     <Pressable
       disabled={disabled}
       onPress={onPress}
+      onLongPress={onLongPress}
       style={({ pressed }) => (pressed || disabled ? { opacity: 0.88 } : null)}>
       <Animated.View style={styles.shell}>
         <Animated.View pointerEvents="none" style={[styles.halo, progressHaloStyle]} />

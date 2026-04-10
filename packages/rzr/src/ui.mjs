@@ -331,10 +331,6 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
         min-height: 0;
       }
 
-      html.xterm-renderer .controls {
-        display: none;
-      }
-
       html.xterm-renderer .screen-shell {
         background: #05070c;
       }
@@ -440,169 +436,98 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
         display: grid;
         gap: 0;
         width: 100%;
-        border: 1px solid rgba(136, 157, 198, 0.2);
+        border: 1px solid rgba(136, 157, 198, 0.18);
         border-right: 0;
         border-left: 0;
         border-bottom: 0;
-        border-radius: 26px 26px 0 0;
+        border-radius: 18px 18px 0 0;
         overflow: hidden;
         background:
-          linear-gradient(180deg, rgba(17, 22, 34, 0.98), rgba(11, 15, 24, 0.98));
+          linear-gradient(180deg, rgba(17, 22, 34, 0.96), rgba(11, 15, 24, 0.96));
         box-shadow:
-          0 24px 64px rgba(0, 0, 0, 0.34),
-          0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-          0 0 36px rgba(94, 134, 255, 0.08),
-          0 0 120px rgba(48, 86, 192, 0.06);
-      }
-
-      .composer-card::before {
-        content: "";
-        position: absolute;
-        inset: 0 0 auto;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
-        pointer-events: none;
+          0 12px 36px rgba(0, 0, 0, 0.3),
+          0 0 0 1px rgba(255, 255, 255, 0.03) inset;
       }
 
       .composer-topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
-        padding: 18px 26px 16px;
-        border-bottom: 1px solid rgba(136, 157, 198, 0.14);
-        background: linear-gradient(180deg, rgba(19, 25, 39, 0.92), rgba(15, 19, 30, 0.88));
+        gap: 10px;
+        padding: 6px 10px 6px 14px;
+        border-bottom: 1px solid rgba(136, 157, 198, 0.12);
+        background: rgba(14, 19, 30, 0.6);
+        min-height: 32px;
       }
 
-      .composer-topbar-left {
+      .composer-toggle {
+        appearance: none;
         display: inline-flex;
         align-items: center;
-        gap: 16px;
+        gap: 8px;
+        padding: 4px 8px;
+        background: transparent;
+        border: 0;
+        color: rgba(211, 219, 236, 0.82);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        cursor: pointer;
+        min-height: 24px;
         min-width: 0;
       }
 
-      .composer-menu {
-        color: rgba(173, 183, 204, 0.72);
-        font-size: 24px;
+      .composer-chevron {
+        display: inline-block;
+        font-size: 10px;
         line-height: 1;
-        letter-spacing: 0.02em;
+        color: rgba(169, 180, 202, 0.7);
+        transition: transform 140ms ease;
       }
 
-      .composer-title {
-        font-size: 20px;
-        font-weight: 700;
-        color: rgba(237, 241, 250, 0.92);
+      .composer-card[data-collapsed="true"] .composer-chevron {
+        transform: rotate(-90deg);
       }
 
-      .composer-state {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        color: rgba(211, 219, 236, 0.88);
-        font-size: 15px;
-        font-weight: 600;
-        white-space: nowrap;
+      .composer-card[data-collapsed="true"] .composer-body {
+        display: none;
       }
 
-      .composer-state-muted {
-        color: rgba(155, 166, 187, 0.78);
-        font-weight: 500;
-      }
-
-      .composer-state::before {
-        content: "";
-        width: 11px;
-        height: 11px;
-        border-radius: 999px;
-        background: linear-gradient(180deg, #6cf59e, #2fbf71);
-        box-shadow: 0 0 16px rgba(54, 214, 121, 0.7);
+      .composer-card[data-collapsed="true"] .composer-topbar {
+        border-bottom: 0;
       }
 
       .composer-body {
         display: grid;
-        gap: 18px;
-        padding: 24px 28px 18px;
-      }
-
-      .composer-label-row {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-      }
-
-      .composer-label {
-        font-size: 17px;
-        font-weight: 700;
-        color: rgba(232, 238, 246, 0.95);
-      }
-
-      .composer-rule {
-        flex: 1 1 auto;
-        height: 1px;
-        background: linear-gradient(90deg, rgba(122, 143, 184, 0.25), rgba(122, 143, 184, 0.04));
-      }
-
-      .composer-shell {
-        display: grid;
-        gap: 14px;
+        grid-template-columns: 1fr auto;
+        align-items: end;
+        gap: 8px;
+        padding: 8px 10px 10px;
       }
 
       .composer-field {
         position: relative;
-        border: 1px solid rgba(108, 132, 182, 0.26);
-        border-radius: 18px;
+        border: 1px solid rgba(108, 132, 182, 0.22);
+        border-radius: 12px;
         overflow: hidden;
-        background:
-          linear-gradient(180deg, rgba(20, 26, 40, 0.96), rgba(14, 18, 29, 0.98));
+        background: rgba(14, 18, 29, 0.92);
+      }
+
+      .composer-state-muted {
+        color: rgba(155, 166, 187, 0.72);
+        font-weight: 500;
+      }
+
+      .composer-body #send.primary {
+        min-height: 40px;
+        min-width: 72px;
+        padding: 0 16px;
+        border-radius: 12px;
+        font-size: 14px;
         box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-          0 16px 40px rgba(0, 0, 0, 0.28),
-          -12px 0 28px rgba(72, 136, 255, 0.06) inset;
-      }
-
-      .composer-field::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 2px;
-        background: linear-gradient(180deg, rgba(79, 140, 255, 0.92), rgba(105, 184, 255, 0.6));
-        box-shadow: 0 0 20px rgba(79, 140, 255, 0.45);
-      }
-
-      .composer-footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 18px;
-        flex-wrap: wrap;
-      }
-
-      .composer-hint {
-        display: inline-flex;
-        align-items: center;
-        gap: 12px;
-        min-width: 0;
-        color: rgba(169, 180, 202, 0.78);
-        font-size: 13px;
-      }
-
-      .composer-actions {
-        display: inline-flex;
-        align-items: center;
-        justify-content: flex-end;
-        flex: 0 0 auto;
-      }
-
-      .composer-hint::before {
-        content: "";
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: linear-gradient(180deg, #69dfa1, #2fbf71);
-        box-shadow: 0 0 14px rgba(47, 191, 113, 0.45);
-        flex: 0 0 auto;
+          0 8px 18px rgba(46, 104, 232, 0.28),
+          0 0 14px rgba(86, 154, 255, 0.18);
       }
 
       .toolbar {
@@ -685,13 +610,14 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
       }
 
       textarea {
-        min-height: 244px;
-        padding: 24px 26px;
-        resize: vertical;
+        min-height: 56px;
+        max-height: 28dvh;
+        padding: 12px 14px;
+        resize: none;
         border: 0;
         border-radius: 0;
         background: transparent;
-        font: 17px/1.58 var(--mono);
+        font: 15px/1.45 var(--mono);
         color: rgba(229, 235, 245, 0.95);
       }
 
@@ -946,52 +872,27 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
         }
 
         .composer-card {
-          border-radius: 18px 18px 0 0;
+          border-radius: 14px 14px 0 0;
         }
 
         .composer-topbar {
-          padding: 16px 18px 14px;
-          align-items: flex-start;
-          flex-direction: column;
-        }
-
-        .composer-title {
-          font-size: 18px;
-        }
-
-        .composer-state {
-          font-size: 14px;
-          white-space: normal;
+          padding: 6px 8px 6px 12px;
+          min-height: 30px;
         }
 
         .composer-body {
-          gap: 14px;
-          padding: 16px 16px 14px;
-        }
-
-        .composer-label {
-          font-size: 15px;
+          gap: 8px;
+          padding: 6px 8px 8px;
         }
 
         textarea {
-          min-height: 116px;
-          max-height: 22dvh;
-          padding: 16px 16px 16px 18px;
-          font-size: 15px;
-          line-height: 1.45;
+          min-height: 48px;
+          max-height: 24dvh;
+          padding: 10px 12px;
+          font-size: 14px;
+          line-height: 1.4;
         }
 
-        .composer-footer {
-          align-items: stretch;
-          gap: 12px;
-        }
-
-        .composer-actions,
-        .composer-actions button {
-          width: 100%;
-        }
-
-        .composer-hint,
         .status-copy,
         .status-inline,
         .status-copy-quiet {
@@ -1090,40 +991,26 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
 
             <section class="controls">
               <div class="controls-inner">
-                <section class="composer-card">
+                <section class="composer-card" id="composerCard" data-collapsed="false">
                   <div class="composer-topbar">
-                    <div class="composer-topbar-left">
-                      <span class="composer-menu">☰</span>
-                      <span class="composer-title">Composer</span>
-                    </div>
-                    <div class="composer-state" id="sessionState">Interactive · <span class="composer-state-muted">tmux session attached</span></div>
+                    <button type="button" class="composer-toggle" id="composerToggle" aria-expanded="true" aria-controls="composerBody">
+                      <span class="composer-chevron">▾</span>
+                      <span>Composer</span>
+                    </button>
+                    <span class="status-copy status-copy-quiet" id="sessionState">${readonly ? "Read-only" : "Interactive"}</span>
                   </div>
 
-                  <div class="composer-body">
-                    <div class="composer-label-row">
-                      <span class="composer-label">Input</span>
-                      <span class="composer-rule"></span>
+                  <div class="composer-body" id="composerBody">
+                    <div class="composer-field">
+                      <textarea
+                        id="composer"
+                        placeholder="Type commands or paste text…"
+                        data-interactive-control
+                        rows="1"
+                        ${readonly ? "disabled" : ""}
+                      ></textarea>
                     </div>
-
-                    <div class="composer-shell">
-                      <div class="composer-field">
-                        <textarea
-                          id="composer"
-                          placeholder="Type commands or paste text…"
-                          data-interactive-control
-                          ${readonly ? "disabled" : ""}
-                        ></textarea>
-                      </div>
-                    </div>
-
-                    <div class="composer-footer">
-                      <div class="composer-hint">
-                        <span class="status-copy" id="footerHint">${readonly ? "Viewing only." : "Cmd/Ctrl + Enter sends • Built for tmux-backed shells and REPLs."}</span>
-                      </div>
-                      <div class="composer-actions">
-                        <button class="primary" id="send" data-interactive-control ${readonly ? "disabled" : ""}>Send</button>
-                      </div>
-                    </div>
+                    <button class="primary" id="send" data-interactive-control ${readonly ? "disabled" : ""}>Send</button>
                   </div>
                 </section>
 
@@ -1199,6 +1086,8 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
       const footerState = document.getElementById("footerState");
       const footerMeta = document.getElementById("footerMeta");
       const composer = document.getElementById("composer");
+      const composerCard = document.getElementById("composerCard");
+      const composerToggle = document.getElementById("composerToggle");
       const send = document.getElementById("send");
       const pasteOnly = document.getElementById("pasteOnly");
       const restart = document.getElementById("restart");
@@ -1403,9 +1292,9 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
         terminal = new window.Terminal({
           allowTransparency: true,
           convertEol: true,
-          cursorBlink: false,
+          cursorBlink: true,
           cursorStyle: "bar",
-          disableStdin: true,
+          disableStdin: readonly || document.documentElement.classList.contains("no-chrome"),
           fontFamily: 'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace',
           fontSize: 13,
           lineHeight: 1.32,
@@ -1421,6 +1310,15 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
         if (fitAddonCtor) {
           fitAddon = new fitAddonCtor();
           terminal.loadAddon(fitAddon);
+        }
+
+        if (!readonly && !document.documentElement.classList.contains("no-chrome")) {
+          terminal.onData((data) => {
+            if (!data) return;
+            if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+              terminalSocket.send(JSON.stringify({ type: "input", text: data }));
+            }
+          });
         }
 
         terminal.open(terminalMount);
@@ -2445,6 +2343,34 @@ export function renderIndexHtml({ sessionName, readonly, passwordRequired, rende
       if (xtermCopySelection) {
         xtermCopySelection.addEventListener("click", async () => {
           await copyTerminalSelection();
+        });
+      }
+
+      const COMPOSER_COLLAPSED_KEY = "rzr:composer:collapsed";
+      function setComposerCollapsed(collapsed) {
+        if (!composerCard) return;
+        composerCard.setAttribute("data-collapsed", collapsed ? "true" : "false");
+        if (composerToggle) {
+          composerToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        }
+        try {
+          localStorage.setItem(COMPOSER_COLLAPSED_KEY, collapsed ? "1" : "0");
+        } catch (_) {}
+      }
+      if (composerCard) {
+        let initialCollapsed = false;
+        try {
+          initialCollapsed = localStorage.getItem(COMPOSER_COLLAPSED_KEY) === "1";
+        } catch (_) {}
+        setComposerCollapsed(initialCollapsed);
+      }
+      if (composerToggle) {
+        composerToggle.addEventListener("click", () => {
+          const next = composerCard.getAttribute("data-collapsed") !== "true";
+          setComposerCollapsed(next);
+          if (!next && composer && !composer.disabled) {
+            composer.focus();
+          }
         });
       }
 

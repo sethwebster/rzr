@@ -123,6 +123,7 @@ const config: ExpoConfig = {
         backgroundColor: '#000000',
       },
     ],
+    './plugins/widget-assets',
   ],
   experiments: {
     typedRoutes: false,

@@ -65,8 +65,8 @@ function mapClaimedPresenceToRuntime(
   else if (presenceState === 'offline') liveState = 'offline';
   else if (presenceState === 'degraded') liveState = 'degraded';
   else if (activityState === 'idle') liveState = 'idle';
-  else if (presenceState === 'online') liveState = 'live';
-  else liveState = 'unknown';
+  else if (presenceState === 'online' && (runtimeState || activityState)) liveState = 'live';
+  else liveState = undefined;
 
   return {
     liveState,
@@ -103,9 +103,6 @@ function mergeSessionRecord(
     incoming.source !== 'account' ? incoming.url : existing.source !== 'account' ? existing.url : incoming.url;
   const preferredSource =
     existing.source !== 'account' ? existing.source : incoming.source !== 'account' ? incoming.source : existing.source;
-  const existingTime = Date.parse(existing.lastConnectedAt) || 0;
-  const incomingTime = Date.parse(incoming.lastConnectedAt) || 0;
-
   return {
     ...existing,
     ...incoming,
@@ -116,7 +113,7 @@ function mergeSessionRecord(
     accent: existing.accent ?? incoming.accent,
     passwordHint: existing.passwordHint ?? incoming.passwordHint,
     source: preferredSource,
-    lastConnectedAt: incomingTime >= existingTime ? incoming.lastConnectedAt : existing.lastConnectedAt,
+    lastConnectedAt: existing.lastConnectedAt,
     liveState: incoming.liveState ?? existing.liveState,
     awaitingInput: incoming.awaitingInput ?? existing.awaitingInput,
     lastStatusAt: incoming.lastStatusAt ?? existing.lastStatusAt,
@@ -493,10 +490,7 @@ export class SessionDataManager {
           url: existing.source === 'account' ? preferredUrl : existing.url,
           label: existing.source === 'account' ? cs.label : existing.label,
           source: (existing.source === 'account' ? 'account' : existing.source) as TerminalSession['source'],
-          lastConnectedAt:
-            existing.source === 'account'
-              ? cs.lastAvailableAt ?? cs.claimedAt ?? existing.lastConnectedAt
-              : existing.lastConnectedAt,
+          lastConnectedAt: existing.lastConnectedAt,
           ...(existing.source === 'account' ? mapClaimedPresenceToRuntime(cs) : {}),
         }];
       });

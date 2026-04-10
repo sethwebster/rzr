@@ -3,14 +3,13 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import { Activity, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, TextInput, View as RNView } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
   FadeOut,
-  runOnJS,
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import { Text, View } from '@/tw';
@@ -59,15 +58,8 @@ function isOnlineOrDegradedSession(session: TerminalSession) {
   );
 }
 
-function canPreinitializeSession(session: TerminalSession) {
-  return (
-    hasSessionToken(session.url) &&
-    (session.liveState === 'live' || session.liveState === 'idle' || session.liveState === 'degraded')
-  );
-}
-
 function byLastSeen(a: TerminalSession, b: TerminalSession) {
-  return (b.lastStatusAt ?? b.lastConnectedAt ?? '').localeCompare(a.lastStatusAt ?? a.lastConnectedAt ?? '');
+  return (b.lastConnectedAt ?? '').localeCompare(a.lastConnectedAt ?? '');
 }
 
 function statusPriority(session: TerminalSession) {
@@ -83,12 +75,12 @@ function statusPriority(session: TerminalSession) {
 export function SessionsListScreen() {
   const router = useRouter();
   const { sessions, phase } = useRawSessionState();
-  const { activateSession } = useSessionActions();
+  const activeSession = useActiveSession();
+  const { remoteSessions, deleteClaimedSession } = useAuth();
+  const { activateSession, removeSession } = useSessionActions();
   const manager = useSessionManager();
   const hydrated = phase === 'ready';
   const [refreshingSessions, setRefreshingSessions] = useState(false);
-  const [armingSessionId, setArmingSessionId] = useState<string | null>(null);
-  const [armingSessionCycle, setArmingSessionCycle] = useState(0);
   const sessionCardRefs = useRef<Record<string, RNView | null>>({});
   const [settled, setSettled] = useState(false);
   const settledRef = useRef(false);
@@ -110,13 +102,6 @@ export function SessionsListScreen() {
   }, [hydrated, sessions]);
 
   const armSessionCard = useCallback((sessionId: string, target: RNView | null) => {
-    if (armingSessionId === sessionId) {
-      setArmingSessionCycle((current) => current + 1);
-    } else {
-      setArmingSessionId(sessionId);
-      setArmingSessionCycle(0);
-    }
-
     const openWithOrigin = (origin?: {
       originX: number;
       originY: number;
@@ -146,7 +131,7 @@ export function SessionsListScreen() {
         originSize: Math.max(width, height),
       });
     });
-  }, [activateSession, armingSessionId, router]);
+  }, [activateSession, router]);
 
   const refreshSessions = useCallback(async () => {
     setRefreshingSessions(true);
@@ -157,6 +142,68 @@ export function SessionsListScreen() {
     }
   }, [manager]);
 
+  const openSessionActions = useCallback((session: TerminalSession) => {
+    const remoteSlug = extractGatewaySlug(session.url);
+    const canDeleteEverywhere =
+      Boolean(remoteSlug) &&
+      remoteSessions.some((remoteSession) => remoteSession.slug === remoteSlug);
+
+    const deleteLocal = () => {
+      removeSession(session.id);
+    };
+
+    const deleteEverywhere = async () => {
+      try {
+        await deleteClaimedSession(session.url);
+        removeSession(session.id);
+      } catch (error) {
+        Alert.alert(
+          'Delete everywhere failed',
+          error instanceof Error ? error.message : 'Unable to delete this session everywhere.',
+        );
+      }
+    };
+
+    Alert.alert(
+      stripGatewaySuffix(session.label),
+      'Choose an action for this saved session.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Rename',
+          onPress: () => {
+            router.push({
+              pathname: '/rename-session',
+              params: { sessionId: session.id },
+            });
+          },
+        },
+        ...(canDeleteEverywhere
+          ? [
+              {
+                text: 'Delete on this device',
+                style: 'destructive' as const,
+                onPress: deleteLocal,
+              },
+              {
+                text: 'Delete everywhere',
+                style: 'destructive' as const,
+                onPress: () => {
+                  void deleteEverywhere();
+                },
+              },
+            ]
+          : [
+              {
+                text: 'Delete',
+                style: 'destructive' as const,
+                onPress: deleteLocal,
+              },
+            ]),
+      ],
+    );
+  }, [deleteClaimedSession, remoteSessions, removeSession, router]);
+
   const onlineSessions = [...sessions].filter(isOnlineOrDegradedSession).sort((a, b) => {
     const pa = statusPriority(a);
     const pb = statusPriority(b);
@@ -166,13 +213,6 @@ export function SessionsListScreen() {
   const offlineSessions = [...sessions].filter((session) => !isOnlineOrDegradedSession(session)).sort((a, b) =>
     byLastSeen(a, b) || a.id.localeCompare(b.id),
   );
-  const preinitializedSessionIds = new Set(
-    sessions
-      .filter(canPreinitializeSession)
-      .map((session) => session.id),
-  );
-  const renderSessionIds = Array.from(preinitializedSessionIds);
-
   return (
     <View className="flex-1">
       <HeaderWithContentScreen
@@ -219,10 +259,12 @@ export function SessionsListScreen() {
                     style={{ width: '47%' }}>
                     <SessionCard
                       session={session}
-                      arming={armingSessionId === session.id}
-                      armCycle={armingSessionId === session.id ? armingSessionCycle : 0}
+                      active={activeSession?.id === session.id}
                       onPress={() => {
                         armSessionCard(session.id, sessionCardRefs.current[session.id] ?? null);
+                      }}
+                      onLongPress={() => {
+                        openSessionActions(session);
                       }}
                     />
                   </RNView>
@@ -248,10 +290,12 @@ export function SessionsListScreen() {
                       <SessionCard
                         session={session}
                         compact
-                        arming={armingSessionId === session.id}
-                        armCycle={armingSessionId === session.id ? armingSessionCycle : 0}
+                        active={activeSession?.id === session.id}
                         onPress={() => {
                           armSessionCard(session.id, sessionCardRefs.current[session.id] ?? null);
+                        }}
+                        onLongPress={() => {
+                          openSessionActions(session);
                         }}
                       />
                     </RNView>
@@ -263,11 +307,6 @@ export function SessionsListScreen() {
         )}
       </HeaderWithContentScreen>
 
-      {renderSessionIds.map((sessionId) => (
-        <Activity key={sessionId} mode="hidden">
-          <ActiveTerminalSessionSurface sessionId={sessionId} visible={false} />
-        </Activity>
-      ))}
     </View>
   );
 }
@@ -492,19 +531,6 @@ function ActiveTerminalSessionSurface({
     }
   }, [mgr, reloadTerminal, restartSession, restartingSession, session]);
 
-  const radialPanGesture = Gesture.Pan()
-    .enabled(radialEnabled && useExpoSwiftTerm)
-    .activateAfterLongPress(520)
-    .onStart((e) => {
-      runOnJS(radialMenuRef.current?.activateMenu ?? (() => {}))(e.absoluteX, e.absoluteY);
-    })
-    .onUpdate((e) => {
-      runOnJS(radialMenuRef.current?.movePointer ?? (() => {}))(e.absoluteX, e.absoluteY);
-    })
-    .onEnd(() => {
-      runOnJS(radialMenuRef.current?.releasePointer ?? (() => {}))();
-    });
-
   if (!session || (!visible && activeSession?.id !== sessionId && !isOnlineOrDegradedSession(session))) {
     return null;
   }
@@ -540,17 +566,15 @@ function ActiveTerminalSessionSurface({
             <View style={StyleSheet.absoluteFillObject}>
               <Animated.View style={[StyleSheet.absoluteFillObject, terminalKeyboardStyle]}>
                 {useExpoSwiftTerm ? (
-                  <GestureDetector gesture={radialPanGesture}>
-                    <View style={styles.webview}>
-                      <SwiftTerminalSessionViewer
-                        sessionUrl={session.url}
-                        authToken={session.authToken}
-                        instanceKey={terminalInstanceKey}
-                        style={StyleSheet.absoluteFillObject}
-                        onConnectionFailed={() => setTunnelOffline(true)}
-                      />
-                    </View>
-                  </GestureDetector>
+                  <View style={styles.webview}>
+                    <SwiftTerminalSessionViewer
+                      sessionUrl={session.url}
+                      authToken={session.authToken}
+                      instanceKey={terminalInstanceKey}
+                      style={StyleSheet.absoluteFillObject}
+                      onConnectionFailed={() => setTunnelOffline(true)}
+                    />
+                  </View>
                 ) : (
                   <TerminalSessionViewer
                     sessionUrl={webviewUrl}

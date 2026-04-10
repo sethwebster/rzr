@@ -818,12 +818,12 @@ export async function createRemoteServer({
 
     if (isApiRequest) {
       if (getTokenFromRequest(request) !== token) {
-        json(response, 401, { error: "invalid token" });
+        json(response, 401, { error: "invalid token", label: target });
         return;
       }
 
       if (url.pathname !== "/api/login" && !isAuthorized(request)) {
-        json(response, 401, { error: "password required" });
+        json(response, 401, { error: "password required", label: target });
         return;
       }
     }
@@ -838,7 +838,7 @@ export async function createRemoteServer({
         sessionName: target,
         readonly,
         passwordRequired,
-        renderer: String(url.searchParams.get("renderer") || "").toLowerCase() === "xterm" ? "xterm" : "classic",
+        renderer: String(url.searchParams.get("renderer") || "").toLowerCase() === "classic" ? "classic" : "xterm",
       }));
       return;
     }
@@ -882,6 +882,7 @@ export async function createRemoteServer({
       if (!isSnapshotInteractive(snapshot)) {
         const payload = {
           error: terminalUnavailableReason(snapshot),
+          label: target,
           target,
           readonly: true,
           passwordRequired,
@@ -897,6 +898,7 @@ export async function createRemoteServer({
         return;
       }
       const payload = {
+        label: target,
         target,
         readonly,
         passwordRequired,

@@ -4,12 +4,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import process from "node:process";
 import { createRequire } from "node:module";
 import { createRemoteServer, makeToken } from "./server.mjs";
 import { createTmuxSessionRuntime } from "./session-runtime/tmux-runtime.mjs";
 import {
   buildPublicSlug,
+  claimRemoteSession,
   createRemoteCheckoutSession,
   createRemotePortalSession,
   DEFAULT_IDLE_TIMEOUT_MS,
@@ -746,6 +748,37 @@ async function promptForRestart(target) {
   });
 }
 
+async function promptForRename(currentLabel) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    const restoreRawMode = typeof stdin.setRawMode === "function";
+    const wasRaw = Boolean(stdin.isRaw);
+
+    if (restoreRawMode) {
+      stdin.setRawMode(false);
+    }
+
+    const rl = createInterface({
+      input: stdin,
+      output: stdout,
+    });
+
+    rl.question(`\nRename session (blank keeps "${currentLabel}"): `, (answer) => {
+      rl.close();
+      if (restoreRawMode) {
+        stdin.setRawMode(wasRaw);
+      }
+      const trimmed = String(answer || "").trim();
+      resolve(trimmed || null);
+    });
+  });
+}
+
 async function waitForGatewayReady(publicUrl, token, { maxAttempts = 30, intervalMs = 1000 } = {}) {
   const url = `${publicUrl}${publicUrl.includes("?") ? "&" : "?"}token=${token}`;
   for (let i = 0; i < maxAttempts; i++) {
@@ -935,6 +968,7 @@ function createDashboardPrinter({
   urls,
   getSnapshot,
   onEnterSession,
+  onRenameSession,
   onRestartSession,
   onPerformUpdate,
   passwordEnabled,
@@ -982,6 +1016,8 @@ function createDashboardPrinter({
     lastActivityAt: 0,
     lastActivityLabel: "waiting for traffic",
     enteringSession: false,
+    sessionLabel: target,
+    renamingSession: false,
     restartingSession: false,
     autoUpdate: loadConfig().autoUpdate ?? false,
     updateStatus: null,
@@ -1172,6 +1208,7 @@ function createDashboardPrinter({
     const sections = state.screenMode === "status"
       ? [
           `${bold}v${reset} enter tmux`,
+          `${bold}n${reset} rename`,
           `${bold}r${reset} restart`,
           `${bold}i${reset} clients`,
           `${bold}u${reset} auto-update`,
@@ -1182,6 +1219,7 @@ function createDashboardPrinter({
       : state.screenMode === "clients"
         ? [
             `${bold}v${reset} enter tmux`,
+            `${bold}n${reset} rename`,
             `${bold}r${reset} restart`,
             `${bold}i${reset} back to status`,
             `${bold}q${reset} tunnel QR`,
@@ -1190,6 +1228,7 @@ function createDashboardPrinter({
       : state.screenMode === "qr"
         ? [
             `${bold}v${reset} enter tmux`,
+            `${bold}n${reset} rename`,
             `${bold}r${reset} restart`,
             `${bold}i${reset} clients`,
             `${bold}q${reset} back to status`,
@@ -1198,6 +1237,7 @@ function createDashboardPrinter({
           ]
         : [
             `${bold}v${reset} enter tmux`,
+            `${bold}n${reset} rename`,
             `${bold}r${reset} restart`,
             `${bold}i${reset} clients`,
             `${bold}?${reset} close shortcuts`,
@@ -1229,6 +1269,35 @@ function createDashboardPrinter({
       state.lastActivityLabel = "tmux attach failed";
     } finally {
       state.enteringSession = false;
+      resumeDashboard();
+    }
+  }
+
+  async function renameSession() {
+    if (state.renamingSession || typeof onRenameSession !== "function") {
+      return;
+    }
+
+    state.renamingSession = true;
+    suspendDashboard();
+
+    try {
+      const nextLabel = await promptForRename(state.sessionLabel || target);
+      if (!nextLabel) {
+        return;
+      }
+
+      const updatedLabel = await onRenameSession(nextLabel);
+      state.sessionLabel = updatedLabel || nextLabel;
+      appendLogLine(`${dim}Renamed session to "${state.sessionLabel}".${reset}`);
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = "renamed session";
+    } catch (error) {
+      appendLogLine(`${red}Rename failed:${reset} ${error.message}`);
+      state.lastActivityAt = Date.now();
+      state.lastActivityLabel = "rename failed";
+    } finally {
+      state.renamingSession = false;
       resumeDashboard();
     }
   }
@@ -1345,6 +1414,11 @@ function createDashboardPrinter({
       return;
     }
 
+    if (key === "n" || key === "N") {
+      void renameSession();
+      return;
+    }
+
     if (key === "r" || key === "R") {
       void restartSession();
       return;
@@ -1437,9 +1511,9 @@ function createDashboardPrinter({
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}tunnel QR${reset}`,
         "",
-        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
+        `${bold}Session${reset}   ${state.sessionLabel}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Tunnel${reset}    ${tunnelLine}`,
-        `${bold}Keys${reset}      ${dim}v enters tmux · r restarts · q toggles · esc/enter returns${reset}`,
+        `${bold}Keys${reset}      ${dim}v enters tmux · n renames · r restarts · q toggles · esc/enter returns${reset}`,
         "",
       ];
 
@@ -1467,9 +1541,9 @@ function createDashboardPrinter({
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}connected clients${reset}`,
         "",
-        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
+        `${bold}Session${reset}   ${state.sessionLabel}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Clients${reset}   ${state.connectedClients} connected`,
-        `${bold}Keys${reset}      ${dim}i toggles · esc/enter returns${reset}`,
+        `${bold}Keys${reset}      ${dim}n renames · i toggles · esc/enter returns${reset}`,
         "",
       ];
 
@@ -1488,7 +1562,7 @@ function createDashboardPrinter({
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}shortcut keys${reset}`,
         "",
-        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
+        `${bold}Session${reset}   ${state.sessionLabel}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Tunnel${reset}    ${tunnelLine}`,
         "",
       ];
@@ -1496,6 +1570,7 @@ function createDashboardPrinter({
       contentRows = [
         `${bold}${magenta}Navigation${reset}`,
         `  ${bold}v${reset}         attach this terminal to the tmux session`,
+        `  ${bold}n${reset}         rename the claimed session label`,
         `  ${bold}r${reset}         restart if dead, or confirm a force restart if alive`,
         `  ${bold}q${reset}         toggle tunnel QR view`,
         `  ${bold}i${reset}         toggle connected clients view`,
@@ -1533,7 +1608,7 @@ function createDashboardPrinter({
       headerLines = [
         `${bold}${cyan}rzr remote${reset}  ${dim}live bridge status${reset}`,
         "",
-        `${bold}Session${reset}   ${target}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
+        `${bold}Session${reset}   ${state.sessionLabel}${sessionBadge() ? ` ${sessionBadge()}` : ""}`,
         `${bold}Port${reset}      ${port}`,
         `${bold}Token${reset}     ${token}`,
         `${bold}Mode${reset}      ${mode}`,
@@ -2113,6 +2188,29 @@ async function main() {
     getSnapshot: server.snapshot,
     onEnterSession: async () => {
       await attachSession(target);
+    },
+    onRenameSession: async (nextLabel) => {
+      if (!registeredSlug || !remoteGateway.enabled) {
+        throw new Error("rename is only available for gateway-backed sessions");
+      }
+
+      const savedAuth = loadSavedAuth();
+      const accessToken = String(
+        savedAuth?.accessToken || process.env.RZR_REMOTE_OWNER_AUTH_TOKEN || "",
+      ).trim();
+
+      if (!accessToken) {
+        throw new Error("sign in with `rzr auth login` first");
+      }
+
+      await claimRemoteSession({
+        baseUrl: remoteGateway.baseUrl,
+        accessToken,
+        slug: registeredSlug,
+        label: nextLabel,
+      });
+
+      return nextLabel;
     },
     onRestartSession: async ({ force }) => {
       await server.restartSession({ force });

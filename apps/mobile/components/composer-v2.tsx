@@ -20,6 +20,7 @@ import { InsetPanel } from '@/components/design-elements';
 import { radii } from '@/lib/design-system';
 import { useSessionDraft } from '@/hooks/use-session-draft';
 import { useTerminalApi } from '@/hooks/use-terminal-api';
+import { useTerminalSettings } from '@/providers/terminal-settings-provider';
 import { createArcPath } from '@/lib/radial-ring-manager';
 import { cx } from '@/lib/utils';
 
@@ -91,6 +92,9 @@ export function ComposerV2({
   const [isFocused, setIsFocused] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [multilineMode, setMultilineMode] = useState(false);
+  const { immediateModeEnabled: immediateMode, setImmediateModeEnabled: setImmediateMode } =
+    useTerminalSettings();
+  const lastTextRef = useRef(text);
   const inputRef = useRef<RNTextInput>(null);
   const suppressNextSubmitRef = useRef(false);
   const { sendInput, pressKey, uploadImage } = useTerminalApi(sessionUrl ?? '', token, auth);
@@ -123,6 +127,28 @@ export function ComposerV2({
     event: NativeSyntheticEvent<TextInputSelectionChangeEventData>,
   ) => {
     setSelection(event.nativeEvent.selection);
+  };
+
+  const handleChangeText = (next: string) => {
+    if (immediateMode) {
+      const previous = lastTextRef.current;
+      if (next === previous) return;
+      let commonPrefix = 0;
+      const maxPrefix = Math.min(previous.length, next.length);
+      while (commonPrefix < maxPrefix && previous[commonPrefix] === next[commonPrefix]) {
+        commonPrefix += 1;
+      }
+      const backspaces = previous.length - commonPrefix;
+      const added = next.slice(commonPrefix);
+      if (backspaces > 0) {
+        void sendInput('\u007f'.repeat(backspaces), false);
+      }
+      if (added.length > 0) {
+        void sendInput(added, false);
+      }
+    }
+    lastTextRef.current = next;
+    setText(next);
   };
 
   const insertNewlineAtSelection = () => {
@@ -349,10 +375,16 @@ export function ComposerV2({
         <RNTextInput
           ref={inputRef}
           value={optimisticText}
-          onChangeText={setText}
+          onChangeText={handleChangeText}
           selection={selection}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          onFocus={() => {
+            console.log('[composer] onFocus');
+            setIsFocused(true);
+          }}
+          onBlur={() => {
+            console.log('[composer] onBlur');
+            setIsFocused(false);
+          }}
           onKeyPress={handleKeyPress}
           onSelectionChange={handleSelectionChange}
           placeholder="Type…"
@@ -524,6 +556,14 @@ export function ComposerV2({
           style={multilineMode ? { ...keyPillStyle, borderColor: 'rgba(124,246,255,0.45)', backgroundColor: 'rgba(124,246,255,0.12)' } : keyPillStyle}>
           <Text className={cx('text-[11px] font-semibold', multilineMode ? 'text-rzr-cyan' : 'text-white/52')}>
             ↵
+          </Text>
+        </TapButton>
+
+        <TapButton
+          onPress={() => setImmediateMode(!immediateMode)}
+          style={immediateMode ? { ...keyPillStyle, borderColor: 'rgba(255,150,207,0.55)', backgroundColor: 'rgba(255,150,207,0.14)' } : keyPillStyle}>
+          <Text className={cx('text-[11px] font-semibold', immediateMode ? 'text-[#ff96cf]' : 'text-white/52')}>
+            !
           </Text>
         </TapButton>
 

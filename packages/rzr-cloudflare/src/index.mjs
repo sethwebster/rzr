@@ -49,29 +49,108 @@ const IDLE_NOTIFICATION_TIERS = [
   { delayMs: 150 * 60_000, key: "2h30m" },
 ];
 
-async function sendSessionPush(env, slug, { title, body, data }) {
+const NOTIFICATION_CATEGORIES = ["idle", "terminated"];
+const IDLE_LEVEL_KEYS = IDLE_NOTIFICATION_TIERS.map((tier) => tier.key);
+
+function parseNotificationPrefs(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isCategoryEnabled(prefs, category, level) {
+  if (!prefs || typeof prefs !== "object") return true;
+  if (prefs[category] === false) return false;
+  if (category === "idle" && level) {
+    const levels = prefs.idleLevels;
+    if (levels && typeof levels === "object" && levels[level] === false) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function normalizeNotificationPrefsInput(value) {
+  if (!value || typeof value !== "object") return null;
+  const out = {};
+  for (const key of NOTIFICATION_CATEGORIES) {
+    if (value[key] === true || value[key] === false) {
+      out[key] = value[key];
+    }
+  }
+  if (value.idleLevels && typeof value.idleLevels === "object") {
+    const levels = {};
+    for (const key of IDLE_LEVEL_KEYS) {
+      if (value.idleLevels[key] === true || value.idleLevels[key] === false) {
+        levels[key] = value.idleLevels[key];
+      }
+    }
+    if (Object.keys(levels).length) {
+      out.idleLevels = levels;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+async function getGatewaySessionPushContext(env, slug) {
   const db = env.AUTH_DB;
+  if (!db) return null;
+
   const row = await db
-    .prepare(`SELECT user_id FROM gateway_sessions WHERE slug = ? AND user_id IS NOT NULL`)
+    .prepare(`SELECT user_id, claimed_label, target FROM gateway_sessions WHERE slug = ? AND user_id IS NOT NULL`)
     .bind(slug)
     .first();
-  if (!row) return;
+  if (!row) return null;
 
   const tokens = await db
-    .prepare(`SELECT push_token FROM expo_push_tokens WHERE user_id = ?`)
+    .prepare(`SELECT push_token, notification_prefs FROM expo_push_tokens WHERE user_id = ?`)
     .bind(row.user_id)
     .all();
-  if (!tokens.results?.length) return;
+  if (!tokens.results?.length) return null;
+
+  return {
+    label: String(row.claimed_label || row.target || slug).trim() || slug,
+    tokens: tokens.results,
+  };
+}
+
+async function getGatewaySessionLabel(env, slug) {
+  const db = env.AUTH_DB;
+  if (!db) return slug;
+
+  const row = await db
+    .prepare(`SELECT claimed_label, target FROM gateway_sessions WHERE slug = ?`)
+    .bind(slug)
+    .first();
+
+  return String(row?.claimed_label || row?.target || slug).trim() || slug;
+}
+
+async function sendSessionPush(env, slug, { title, body, data, category, level }) {
+  const context = await getGatewaySessionPushContext(env, slug);
+  if (!context) return;
+
+  const eligible = category
+    ? context.tokens.filter((t) =>
+        isCategoryEnabled(parseNotificationPrefs(t.notification_prefs), category, level),
+      )
+    : context.tokens;
+  if (!eligible.length) return;
 
   await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(
-      tokens.results.map((t) => ({
+      eligible.map((t) => ({
         to: t.push_token,
         title,
         body,
-        data: { href: "rzrmobile://sessions", ...data },
+        data: { href: "rzrmobile://sessions", ...data, category, level },
         sound: "default",
         priority: "high",
       })),
@@ -368,6 +447,27 @@ async function handleProxy(request, env, slug) {
     if (resp.status >= 502 && resp.status <= 504) {
       return waitingPage(slug);
     }
+    if (requestUrl.pathname === "/api/session") {
+      const label = await getGatewaySessionLabel(env, slug).catch(() => slug);
+      const text = await resp.text();
+      const headers = new Headers(resp.headers);
+      headers.delete("content-length");
+
+      try {
+        const payload = text ? JSON.parse(text) : {};
+        return new Response(JSON.stringify({ ...payload, label }), {
+          status: resp.status,
+          statusText: resp.statusText,
+          headers,
+        });
+      } catch {
+        return new Response(text, {
+          status: resp.status,
+          statusText: resp.statusText,
+          headers,
+        });
+      }
+    }
     return resp;
   } catch {
     return waitingPage(slug);
@@ -612,21 +712,59 @@ async function handleRegisterExpoPushToken(request, env) {
       return errorResponse(400, "deviceId and pushToken are required");
     }
 
+    const prefs = normalizeNotificationPrefsInput(body.notificationPrefs);
+    const prefsJson = prefs ? JSON.stringify(prefs) : null;
+
     const db = env.AUTH_DB;
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     await db
       .prepare(
-        `INSERT INTO expo_push_tokens (id, user_id, device_id, push_token, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT (user_id, device_id) DO UPDATE SET push_token = ?, updated_at = ?`,
+        `INSERT INTO expo_push_tokens (id, user_id, device_id, push_token, notification_prefs, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (user_id, device_id) DO UPDATE SET push_token = ?, notification_prefs = COALESCE(?, notification_prefs), updated_at = ?`,
       )
-      .bind(id, auth.user.id, deviceId, pushToken, now, now, pushToken, now)
+      .bind(id, auth.user.id, deviceId, pushToken, prefsJson, now, now, pushToken, prefsJson, now)
       .run();
 
     return json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unable to register token";
+    return errorResponse(message === "unauthorized" ? 401 : 400, message);
+  }
+}
+
+async function handleUpdateNotificationPrefs(request, env) {
+  try {
+    const auth = await getUserFromAuthRequest(request, env);
+    if (!auth) return errorResponse(401, "unauthorized");
+
+    const body = await parseJson(request);
+    const deviceId = String(body.deviceId || "").trim();
+    if (!deviceId) {
+      return errorResponse(400, "deviceId is required");
+    }
+
+    const prefs = normalizeNotificationPrefsInput(body.notificationPrefs);
+    if (!prefs) {
+      return errorResponse(400, "notificationPrefs is required");
+    }
+
+    const now = new Date().toISOString();
+    const result = await env.AUTH_DB
+      .prepare(
+        `UPDATE expo_push_tokens SET notification_prefs = ?, updated_at = ? WHERE user_id = ? AND device_id = ?`,
+      )
+      .bind(JSON.stringify(prefs), now, auth.user.id, deviceId)
+      .run();
+
+    if (!result.meta?.changes) {
+      return errorResponse(404, "no push token registered for that device");
+    }
+
+    return json({ ok: true, notificationPrefs: prefs });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unable to update notification prefs";
     return errorResponse(message === "unauthorized" ? 401 : 400, message);
   }
 }
@@ -1035,6 +1173,13 @@ export default {
       return handleDeleteExpoPushToken(request, env);
     }
 
+    if (
+      (request.method === "PATCH" || request.method === "POST") &&
+      url.pathname === "/api/account/notification-prefs"
+    ) {
+      return handleUpdateNotificationPrefs(request, env);
+    }
+
     if (request.method === "POST" && url.pathname === "/api/account/test-push") {
       return handleTestPush(request, env);
     }
@@ -1097,10 +1242,12 @@ export class SessionRegistry {
 
     if (isExpired(session)) {
       await this.state.storage.delete("session");
-      const label = session.target || session.slug;
+      const context = await getGatewaySessionPushContext(this.env, session.slug).catch(() => null);
+      const label = context?.label || session.target || session.slug;
       await sendSessionPush(this.env, session.slug, {
         title: "Session terminated",
         body: `Your session "${label}" was terminated. Restart to continue.`,
+        category: "terminated",
       }).catch(() => null);
       await markGatewaySessionReleased(this.env, session.slug).catch(() => null);
       dispatchLiveActivityPush(this.env, session.slug).catch(() => null);
@@ -1115,10 +1262,13 @@ export class SessionRegistry {
       for (const tier of IDLE_NOTIFICATION_TIERS) {
         if (sent.includes(tier.key)) continue;
         if (elapsed >= tier.delayMs) {
-          const label = session.target || session.slug;
+          const context = await getGatewaySessionPushContext(this.env, session.slug).catch(() => null);
+          const label = context?.label || session.target || session.slug;
           await sendSessionPush(this.env, session.slug, {
             title: "Session idle",
             body: `Your session "${label}" is idle.`,
+            category: "idle",
+            level: tier.key,
           }).catch(() => null);
           const updated = { ...session, notifiedTiers: [...sent, tier.key] };
           await this.state.storage.put("session", updated);

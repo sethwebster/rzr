@@ -77,10 +77,16 @@ export async function verifyConnection(connection: PreparedConnection) {
       continue;
     }
 
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; label?: string }
+      | null;
+    const label =
+      typeof payload?.label === 'string' && payload.label.trim().length > 0
+        ? payload.label.trim()
+        : undefined;
 
     if (response.status === 401 && payload?.error === 'password required') {
-      return { passwordRequired: true };
+      return { passwordRequired: true, label };
     }
     if (!response.ok) {
       if (response.status === 401 && payload?.error === 'invalid token') {
@@ -88,7 +94,7 @@ export async function verifyConnection(connection: PreparedConnection) {
       }
       throw new Error(payload?.error || `Server returned ${response.status}`);
     }
-    return { passwordRequired: false };
+    return { passwordRequired: false, label };
   }
 
   throw new Error('Host did not become ready in time.');

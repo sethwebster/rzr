@@ -79,14 +79,14 @@ export function useComposerSheet(
     insetRef.current = rounded;
   }, [bottomInset]);
 
-  const updateDetentIndex = (height: number) => {
+  const updateDetentIndex = useCallback((height: number) => {
     const nextIndex = COMPOSER_DETENTS.findIndex((point) => point === height);
     setDetentIndex(nextIndex >= 0 ? nextIndex : 0);
-  };
+  }, []);
 
-  const dismissKeyboard = () => {
+  const dismissKeyboard = useCallback(() => {
     Keyboard.dismiss();
-  };
+  }, []);
 
   const gesture = Gesture.Pan()
     .activeOffsetY([-4, 4])

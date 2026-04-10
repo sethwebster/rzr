@@ -1365,12 +1365,26 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     func updateScroller ()
     {
         let displayBuffer = terminal.displayBuffer
-        contentSize = CGSize (width: CGFloat (displayBuffer.cols) * cellDimension.width,
-                              height: CGFloat (displayBuffer.lines.count) * cellDimension.height)
-        //contentOffset = CGPoint (x: 0, y: CGFloat (displayBuffer.lines.count-displayBuffer.rows)*cellDimension.height)
-        contentOffset = CGPoint (x: 0, y: CGFloat (displayBuffer.lines.count-displayBuffer.rows)*cellDimension.height)
-        //Xscroller.doubleValue = scrollPosition
-        //Xscroller.knobProportion = scrollThumbsize
+        let newHeight = CGFloat (displayBuffer.lines.count) * cellDimension.height
+        let newSize = CGSize (width: CGFloat (displayBuffer.cols) * cellDimension.width,
+                              height: newHeight)
+
+        // Follow-bottom: only snap contentOffset to the live position if the
+        // viewport was already at (or near) the bottom before the content
+        // changed. If the user has scrolled up into the scrollback, leave
+        // their viewport alone so streaming output doesn't yank them away
+        // from what they were reading.
+        let previousMaxOffset = max(0, contentSize.height - bounds.height)
+        let wasAtBottom =
+            contentSize.height <= bounds.height
+            || abs(contentOffset.y - previousMaxOffset) < cellDimension.height
+
+        contentSize = newSize
+
+        if wasAtBottom {
+            let maxY = max(0, newHeight - bounds.height)
+            contentOffset = CGPoint(x: 0, y: maxY)
+        }
     }
 
 #if canImport(MetalKit)

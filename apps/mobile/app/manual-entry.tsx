@@ -7,7 +7,7 @@ import { PremiumButton } from '@/components/premium-button';
 import { prepareManualConnection, verifyConnection } from '@/lib/connect-flow/connection';
 import { useSessionActions, useSessionList } from '@/hooks/use-session-data';
 import { type SessionAccent } from '@/types/session';
-import { accentClasses, cx } from '@/lib/utils';
+import { accentClasses, createSessionId, cx } from '@/lib/utils';
 
 const ACCENTS: SessionAccent[] = ['cyan', 'violet', 'pink', 'green'];
 
@@ -23,7 +23,7 @@ export default function ManualEntryScreen() {
   const { connectSession } = useSessionActions();
   const { sessions } = useSessionList();
   const [draft, setDraft] = useState({
-    label: typeof params.label === 'string' && params.label.length ? params.label : 'Night Shift',
+    label: typeof params.label === 'string' ? params.label : '',
     remoteUrl: typeof params.remoteUrl === 'string' ? params.remoteUrl : '',
     passwordHint: typeof params.passwordHint === 'string' ? params.passwordHint : '',
     accent:
@@ -33,6 +33,7 @@ export default function ManualEntryScreen() {
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const canLaunch = draft.remoteUrl.trim().length > 0 && !submitting;
 
   const content = useMemo(
     () => (
@@ -51,7 +52,7 @@ export default function ManualEntryScreen() {
             label="Label"
             value={draft.label}
             onChangeText={(value) => setDraft((current) => ({ ...current, label: value }))}
-            placeholder="Night Shift"
+            placeholder="Optional — uses server session name"
           />
           <InputField
             label="Remote URL"
@@ -99,23 +100,27 @@ export default function ManualEntryScreen() {
           <PremiumButton
             label={submitting ? 'Launching…' : 'Launch'}
             icon={submitting ? undefined : 'arrow-forward'}
-            disabled={submitting}
+            disabled={!canLaunch}
             onPress={async () => {
               try {
                 setSubmitting(true);
                 setError(null);
                 const connection = prepareManualConnection(draft);
+                const candidateId = createSessionId(connection.normalizedUrl);
+                const verification = await verifyConnection(connection);
+                const authoritativeLabel = verification.label ?? connection.label;
                 if (
                   sessions.some(
                     (item) =>
-                      item.label === connection.label && item.url !== connection.normalizedUrl,
+                      item.id !== candidateId &&
+                      item.label === authoritativeLabel &&
+                      item.url !== connection.normalizedUrl,
                   )
                 ) {
-                  throw new Error(`A session labeled "${connection.label}" already exists.`);
+                  throw new Error(`A session labeled "${authoritativeLabel}" already exists.`);
                 }
-                await verifyConnection(connection);
                 const nextSession = connectSession({
-                  label: connection.label,
+                  label: authoritativeLabel,
                   url: connection.normalizedUrl,
                   token: connection.token,
                   passwordHint: connection.passwordHint,
@@ -144,7 +149,7 @@ export default function ManualEntryScreen() {
         ) : null}
       </View>
     ),
-    [connectSession, draft, error, sessions, submitting],
+    [canLaunch, connectSession, draft, error, sessions, submitting],
   );
 
   return <SafeAreaView edges={['bottom']} className="bg-rzr-ink">{content}</SafeAreaView>;
