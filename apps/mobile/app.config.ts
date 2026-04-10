@@ -68,6 +68,8 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    '@clerk/expo',
+    'expo-secure-store',
     [
       'expo-widgets',
       {

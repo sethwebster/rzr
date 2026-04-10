@@ -1,3 +1,5 @@
+import { ClerkProvider } from '@clerk/expo';
+import { tokenCache } from '@clerk/expo/token-cache';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -8,6 +10,9 @@ import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
+import { Toaster } from 'sonner-native';
+
+import { TOASTER_CONFIG } from '@/lib/toast-config';
 
 import { useNotificationBridge } from '@/hooks/use-notification-bridge';
 import { usePushTokenRegistration } from '@/hooks/use-push-token-registration';
@@ -21,6 +26,12 @@ import '../global.css';
 
 SplashScreen.preventAutoHideAsync().catch(() => null);
 SystemUI.setBackgroundColorAsync('#050816').catch(() => null);
+
+const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+if (!publishableKey) {
+  throw new Error('Add EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY to your .env file.');
+}
 
 const NAV_THEME = {
   ...DarkTheme,
@@ -82,15 +93,16 @@ function WidgetBridge() {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <AuthProvider>
-          <TerminalSettingsProvider>
-            <SessionProvider>
-              <ThemeProvider value={NAV_THEME}>
-                <NotificationBridge />
-                <SessionManagerBridge />
-                <WidgetBridge />
-                <Stack
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+        <SafeAreaProvider>
+          <AuthProvider>
+            <TerminalSettingsProvider>
+              <SessionProvider>
+                <ThemeProvider value={NAV_THEME}>
+                  <NotificationBridge />
+                  <SessionManagerBridge />
+                  <WidgetBridge />
+                  <Stack
                   screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#050816' } }}>
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen
@@ -145,12 +157,14 @@ export default function RootLayout() {
                   />
                   <Stack.Screen name="+not-found" />
                 </Stack>
-                <StatusBar style="light" />
-              </ThemeProvider>
-            </SessionProvider>
-          </TerminalSettingsProvider>
-        </AuthProvider>
-      </SafeAreaProvider>
+                  <StatusBar style="light" />
+                  <Toaster {...TOASTER_CONFIG} />
+                </ThemeProvider>
+              </SessionProvider>
+            </TerminalSettingsProvider>
+          </AuthProvider>
+        </SafeAreaProvider>
+      </ClerkProvider>
     </GestureHandlerRootView>
   );
 }

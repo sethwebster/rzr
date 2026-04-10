@@ -17,6 +17,13 @@ export default function SessionsLayout() {
           sheetInitialDetentIndex: 0,
           sheetGrabberVisible: true,
           sheetCornerRadius: 28,
+          // Decouple inner scroll from sheet-pan arbitration — without this
+          // iOS's UISheetPresentationController waits for the first touch
+          // event to resolve "is this a scroll or a sheet drag?" before
+          // letting inner views process any touches. The symptom is: on
+          // first open, nothing is tappable/scrollable until the user
+          // drags the sheet grabber and releases it.
+          sheetExpandsWhenScrolledToEdge: false,
         }}
       />
     </Stack>

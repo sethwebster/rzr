@@ -16,6 +16,7 @@ import { HeaderWithContentScreen } from '@/components/header-with-content-screen
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { PremiumButton } from '@/components/premium-button';
 import { SignalChip } from '@/components/signal-chip';
+import { toast } from '@/lib/toast';
 import { Text, TextInput, View } from '@/tw';
 
 function SectionLabel({ children }: { children: string }) {
@@ -280,6 +281,56 @@ export default function DesignSystemScreen() {
           onPress={() => router.push('/nowhere' as any)}
         />
       </LiquidGlassCard>
+
+      {/* ── Toasts ── */}
+      <SectionCard className="mt-5">
+        <Text className="text-[22px] font-semibold tracking-[-0.04em] text-white">
+          Toasts
+        </Text>
+        <Text className="mt-2 text-[14px] leading-6 text-white/56">
+          sonner-native wrapped via <Text className="font-mono text-rzr-cyan">@/lib/toast</Text>.
+          Default duration + bottom placement baked in.
+        </Text>
+        <View className="mt-4 flex-row flex-wrap gap-3">
+          <PremiumButton
+            label="Default"
+            icon="chatbox-outline"
+            onPress={() => toast('Session saved')}
+          />
+          <PremiumButton
+            label="Success"
+            icon="checkmark-circle-outline"
+            onPress={() => toast.success('Connected to bridge')}
+          />
+          <PremiumButton
+            label="Error"
+            icon="alert-circle-outline"
+            variant="secondary"
+            onPress={() => toast.error('Tunnel dropped', { description: 'Reconnecting…' })}
+          />
+          <PremiumButton
+            label="Info"
+            icon="information-circle-outline"
+            variant="ghost"
+            onPress={() => toast.info('3 claimed sessions synced')}
+          />
+          <PremiumButton
+            label="Promise"
+            icon="hourglass-outline"
+            variant="ghost"
+            onPress={() =>
+              toast.promise(
+                new Promise((resolve) => setTimeout(() => resolve('done'), 1500)),
+                {
+                  loading: 'Uploading snapshot…',
+                  success: 'Upload complete',
+                  error: 'Upload failed',
+                },
+              )
+            }
+          />
+        </View>
+      </SectionCard>
 
       {/* ── Close ── */}
       <View className="mt-8 items-center">
