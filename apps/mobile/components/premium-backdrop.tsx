@@ -13,23 +13,29 @@ export function PremiumBackdrop() {
 
   const orbA = useAnimatedStyle(() => ({
     transform: [
-      { translateX: interpolate(drift.value, [0, 1], [0, 18]) },
-      { translateY: interpolate(drift.value, [0, 1], [0, -26]) },
-      { scale: interpolate(drift.value, [0, 1], [1, 1.08]) },
+      { translateX: interpolate(drift.value, [0, 1], [0, 42]) },
+      { translateY: interpolate(drift.value, [0, 1], [0, -58]) },
+      { scale: interpolate(drift.value, [0, 1], [1, 1.12]) },
     ],
+    opacity: interpolate(drift.value, [0, 1], [0.5, 0.68]),
   }));
 
   const orbB = useAnimatedStyle(() => ({
     transform: [
-      { translateX: interpolate(drift.value, [0, 1], [0, -22]) },
-      { translateY: interpolate(drift.value, [0, 1], [0, 18]) },
-      { scale: interpolate(drift.value, [0, 1], [1.06, 0.94]) },
+      { translateX: interpolate(drift.value, [0, 1], [0, -56]) },
+      { translateY: interpolate(drift.value, [0, 1], [0, 44]) },
+      { scale: interpolate(drift.value, [0, 1], [1.12, 0.92]) },
     ],
+    opacity: interpolate(drift.value, [0, 1], [0.4, 0.58]),
   }));
 
   const orbC = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(drift.value, [0, 1], [0, 14]) }],
-    opacity: interpolate(drift.value, [0, 1], [0.45, 0.75]),
+    transform: [
+      { translateX: interpolate(drift.value, [0, 1], [0, 26]) },
+      { translateY: interpolate(drift.value, [0, 1], [0, 34]) },
+      { scale: interpolate(drift.value, [0, 1], [1, 1.08]) },
+    ],
+    opacity: interpolate(drift.value, [0, 1], [0.3, 0.46]),
   }));
 
   return (
@@ -45,8 +51,9 @@ export function PremiumBackdrop() {
         <Animated.View style={[styles.orb, styles.orbB, orbB]} />
         <Animated.View style={[styles.orb, styles.orbC, orbC]} />
       </View>
-      <BlurView intensity={200} tint="dark" style={StyleSheet.absoluteFillObject} />
-      <BlurView intensity={200} tint="dark" style={StyleSheet.absoluteFillObject} />
+      <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFillObject} />
+      <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFillObject} />
+      <BlurView intensity={100} tint="dark" style={styles.softeningLayer} />
     </View>
   );
 }
@@ -57,24 +64,28 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   orbA: {
-    top: -40,
-    left: -100,
-    width: 500,
-    height: 500,
-    backgroundColor: 'rgba(124, 246, 255, 0.22)',
+    top: -180,
+    left: -220,
+    width: 760,
+    height: 760,
+    backgroundColor: 'rgba(124, 246, 255, 0.2)',
   },
   orbB: {
-    top: 100,
-    right: -120,
-    width: 560,
-    height: 560,
-    backgroundColor: 'rgba(139, 124, 255, 0.24)',
+    top: 40,
+    right: -260,
+    width: 880,
+    height: 880,
+    backgroundColor: 'rgba(139, 124, 255, 0.18)',
   },
   orbC: {
-    bottom: 60,
-    left: -20,
-    width: 440,
-    height: 440,
-    backgroundColor: 'rgba(255, 119, 217, 0.18)',
+    bottom: -160,
+    left: -180,
+    width: 720,
+    height: 720,
+    backgroundColor: 'rgba(255, 119, 217, 0.15)',
+  },
+  softeningLayer: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.76,
   },
 });

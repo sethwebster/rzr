@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "npx wrangler dev",
-    "deploy": "npx wrangler deploy",
+    "migrate": "npx wrangler d1 migrations apply rzr-auth --remote",
+    "deploy": "npm run migrate && npx wrangler deploy",
     "test": "node --test"
   }
 }

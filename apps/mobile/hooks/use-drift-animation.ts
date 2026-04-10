@@ -7,7 +7,7 @@ export function useDriftAnimation() {
   useEffect(() => {
     drift.value = withRepeat(
       withTiming(1, {
-        duration: 6400,
+        duration: 28000,
         easing: Easing.inOut(Easing.quad),
       }),
       -1,

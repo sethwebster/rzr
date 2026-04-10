@@ -1,3 +1,5 @@
+import { useAuth } from '@clerk/expo';
+import { Redirect } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { TabBarProvider, useTabBar } from '@/providers/tab-bar-provider';
@@ -32,6 +34,16 @@ function TabNavigator() {
 }
 
 export default function TabLayout() {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (!isLoaded) {
+    return null;
+  }
+
+  if (!isSignedIn) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
+
   return (
     <TabBarProvider>
       <TabNavigator />

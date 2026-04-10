@@ -1,3 +1,4 @@
+import { useClerk } from '@clerk/expo';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { Linking, Switch } from 'react-native';
@@ -27,6 +28,7 @@ import { Text, TextInput, View } from '@/tw';
 
 export default function SignalsScreen() {
   const router = useRouter();
+  const { signOut: signOutClerk } = useClerk();
   const updates = useAppUpdates();
   const activeSession = useActiveSession();
   const {
@@ -119,9 +121,13 @@ export default function SignalsScreen() {
 
   const handleSignOut = async () => {
     setAuthBusy(true);
-    await signOut().catch(() => null);
+    await Promise.allSettled([
+      signOut().catch(() => null),
+      signOutClerk().catch(() => null),
+    ]);
     setAuthMessage('Signed out on this device.');
     setAuthBusy(false);
+    router.replace('/(auth)/sign-in');
   };
 
   return (

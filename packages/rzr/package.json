@@ -1,6 +1,6 @@
 {
   "name": "@sethwebster/rzr",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A razor-thin remote around any terminal process",
   "license": "MIT",
   "type": "module",
