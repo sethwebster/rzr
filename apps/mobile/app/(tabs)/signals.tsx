@@ -127,7 +127,7 @@ export default function SignalsScreen() {
     ]);
     setAuthMessage('Signed out on this device.');
     setAuthBusy(false);
-    router.replace('/(auth)/sign-in');
+    router.replace('/');
   };
 
   return (
