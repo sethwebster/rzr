@@ -27,7 +27,7 @@ const config: ExpoConfig = {
     supportsTablet: false,
     backgroundColor: '#000000',
     bundleIdentifier: 'com.sethwebster.rzrmobile',
-    associatedDomains: ['applinks:*.rzr.live'],
+    associatedDomains: ['applinks:rzr.live', 'applinks:*.rzr.live'],
     infoPlist: {
       NSCameraUsageDescription:
         'rzr mobile uses the camera to scan QR codes that connect you to terminal sessions.',
@@ -56,7 +56,10 @@ const config: ExpoConfig = {
       {
         action: 'VIEW',
         autoVerify: true,
-        data: [{ scheme: 'https', host: '*.rzr.live' }],
+        data: [
+          { scheme: 'https', host: 'rzr.live' },
+          { scheme: 'https', host: '*.rzr.live' },
+        ],
         category: ['BROWSABLE', 'DEFAULT'],
       },
     ],

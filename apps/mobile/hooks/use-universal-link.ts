@@ -2,45 +2,13 @@ import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
 
-import { buildConnectHref } from '@/lib/utils';
-
-const RZR_LIVE_PATTERN = /\.rzr\.live$/i;
-
-function isRzrLiveUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname;
-    return RZR_LIVE_PATTERN.test(hostname);
-  } catch {
-    return false;
-  }
-}
-
-function routeRzrLiveUrl(url: string) {
-  const parsed = new URL(url);
-
-  if (parsed.pathname === '/auth/verify') {
-    const token = parsed.searchParams.get('token');
-    if (token) {
-      router.push({ pathname: '/auth', params: { magic: token } });
-    }
-    return;
-  }
-
-  const subdomain = parsed.hostname.split('.')[0] ?? 'Live bridge';
-  const href = buildConnectHref({
-    label: subdomain,
-    url,
-    accent: 'cyan',
-    passwordHint: '',
-  });
-  router.push(href as never);
-}
+import { getRzrLiveHref, isRzrLiveUrl } from '@/lib/rzr-links';
 
 export function useUniversalLink() {
   useEffect(() => {
     const handleUrl = ({ url }: { url: string }) => {
       if (isRzrLiveUrl(url)) {
-        routeRzrLiveUrl(url);
+        router.push(getRzrLiveHref(url) as never);
       }
     };
 
@@ -48,7 +16,7 @@ export function useUniversalLink() {
 
     Linking.getInitialURL().then((url) => {
       if (url && isRzrLiveUrl(url)) {
-        routeRzrLiveUrl(url);
+        router.push(getRzrLiveHref(url) as never);
       }
     });
 

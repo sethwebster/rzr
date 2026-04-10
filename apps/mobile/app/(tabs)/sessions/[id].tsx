@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { SessionDetailScreen } from './_shared';
+import { SessionDetailScreen } from '@/lib/session-screens';
 
 export default function SessionDetailRoute() {
   const params = useLocalSearchParams<{
