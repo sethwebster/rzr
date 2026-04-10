@@ -24,6 +24,7 @@ import { RadialMenu, type RadialMenuHandle } from '@/components/radial-menu';
 import { SessionCard, SessionCardSkeleton } from '@/components/session-card';
 import { ActionPillButton, FieldPanel, IconButtonCircle } from '@/components/design-elements';
 import { SessionOffline } from '@/components/session-offline';
+import { SessionStatusDot } from '@/components/session-status-dot';
 import { ComposerV2 } from '@/components/composer-v2';
 import { StaticBackground } from '@/components/static-background';
 import { SwiftTerminalSessionViewer } from '@/components/swift-terminal-session-viewer';
@@ -516,8 +517,10 @@ function ActiveTerminalSessionSurface({
     ) : null;
   }
 
-  const canRestartSession = session.liveState === 'exited' || restartingSession;
-  const sessionLocked = session.liveState === 'locked' && !session.authToken;
+  const effectiveLiveState = session.liveState ?? (hasSessionToken(session.url) ? 'connecting' : 'offline');
+  const headerSession = { ...session, liveState: effectiveLiveState };
+  const canRestartSession = effectiveLiveState === 'exited' || restartingSession;
+  const sessionLocked = effectiveLiveState === 'locked' && !session.authToken;
   const webviewUrl = session.url + (session.url.includes('?') ? '&' : '?') + 'chrome=0';
   const terminalInstanceKey = `${session.id}:${session.lastConnectedAt}:${webKey}`;
 
@@ -602,9 +605,12 @@ function ActiveTerminalSessionSurface({
               topPadding={null}
               contentClassName="px-5 pb-3 pt-10"
               leftSlot={
-                <Text className="text-[17px] font-bold tracking-[-0.02em] text-white">
-                  {stripGatewaySuffix(session.label)}
-                </Text>
+                <View className="flex-row items-center gap-2">
+                  <SessionStatusDot session={headerSession} size="sm" />
+                  <Text className="text-[17px] font-bold tracking-[-0.02em] text-white">
+                    {stripGatewaySuffix(session.label)}
+                  </Text>
+                </View>
               }
               rightSlot={
                 <View className="flex-row items-center gap-2">

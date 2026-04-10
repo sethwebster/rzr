@@ -29,6 +29,7 @@ export function getSessionStatusColor(session: Pick<TerminalSession, 'liveState'
     case 'idle':
       return COLORS.amber;
     case 'connecting':
+    case 'unknown':
       return COLORS.cyan;
     case 'degraded':
       return COLORS.amber;
@@ -43,7 +44,7 @@ export function getSessionStatusColor(session: Pick<TerminalSession, 'liveState'
     case 'locked':
       return COLORS.pink;
     default:
-      return COLORS.dim;
+      return COLORS.cyan;
   }
 }
 

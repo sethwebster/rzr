@@ -87,9 +87,6 @@ function hasUrlToken(url: string) {
 function stripVolatile(session: TerminalSession): TerminalSession {
   return {
     ...session,
-    liveState: undefined,
-    awaitingInput: undefined,
-    lastStatusAt: undefined,
     previewScreen: undefined,
     previewLines: undefined,
     syncStatus: undefined,
@@ -120,9 +117,9 @@ function mergeSessionRecord(
     passwordHint: existing.passwordHint ?? incoming.passwordHint,
     source: preferredSource,
     lastConnectedAt: incomingTime >= existingTime ? incoming.lastConnectedAt : existing.lastConnectedAt,
-    liveState: existing.liveState ?? incoming.liveState,
-    awaitingInput: existing.awaitingInput ?? incoming.awaitingInput,
-    lastStatusAt: existing.lastStatusAt ?? incoming.lastStatusAt,
+    liveState: incoming.liveState ?? existing.liveState,
+    awaitingInput: incoming.awaitingInput ?? existing.awaitingInput,
+    lastStatusAt: incoming.lastStatusAt ?? existing.lastStatusAt,
     previewScreen: existing.previewScreen ?? incoming.previewScreen,
     previewLines: existing.previewLines?.length ? existing.previewLines : incoming.previewLines,
     syncStatus: undefined,
