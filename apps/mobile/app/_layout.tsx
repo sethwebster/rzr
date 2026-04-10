@@ -1,3 +1,9 @@
+// Force Metro to eagerly bundle these so @clerk/expo's dynamic `import()` in
+// useSSO.js resolves successfully on native — Metro sometimes misses them in
+// monorepo/bun setups, which silently falls through to clerk's misleading
+// "expo-auth-session and expo-web-browser are required" error.
+import 'expo-web-browser';
+import 'expo-auth-session';
 import { ClerkProvider } from '@clerk/expo';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';

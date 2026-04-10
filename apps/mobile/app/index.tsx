@@ -84,57 +84,52 @@ export default function IndexScreen() {
       bottomPadding={56}
       staticBackgroundOpacity={0.14}
       staticBackgroundVignetteOpacity={0.88}>
-      <View className="items-center gap-4 px-1">
+      <View className="items-center gap-5 px-1">
         <Image source={LOGO} style={styles.logo} resizeMode="contain" />
+        <View className="w-full gap-3">
+          <PremiumButton
+            icon="logo-github"
+            label={activeProvider === 'oauth_github' ? 'Connecting GitHub…' : 'Continue with GitHub'}
+            onPress={() => handleSSO('oauth_github')}
+            disabled={activeProvider !== null}
+          />
+          <PremiumButton
+            icon="logo-gitlab"
+            label={activeProvider === 'oauth_gitlab' ? 'Connecting GitLab…' : 'Continue with GitLab'}
+            variant="secondary"
+            onPress={() => handleSSO('oauth_gitlab')}
+            disabled={activeProvider !== null}
+          />
+          <PremiumButton
+            icon="logo-apple"
+            label={activeProvider === 'oauth_apple' ? 'Connecting Apple…' : 'Continue with Apple'}
+            variant="secondary"
+            onPress={() => handleSSO('oauth_apple')}
+            disabled={activeProvider !== null}
+          />
+          <PremiumButton
+            label="Use without signing in"
+            variant="ghost"
+            onPress={() => router.push('/(tabs)/sessions')}
+          />
+          <View className="flex-row items-center justify-center gap-1 pt-1">
+            <Text className="text-[14px] text-white/46">Prefer email?</Text>
+            <Text
+              selectable
+              onPress={() => router.push('/(auth)/sign-in')}
+              className="text-[14px] font-semibold text-rzr-cyan">
+              Use a code instead
+            </Text>
+          </View>
+        </View>
         <Text selectable className="text-center text-[15px] leading-7 text-white/58">
           Pick a provider to sign in, or jump straight into the app without creating an account.
         </Text>
-      </View>
-
-      <View className="gap-3">
-        <PremiumButton
-          icon="logo-github"
-          label={activeProvider === 'oauth_github' ? 'Connecting GitHub…' : 'Continue with GitHub'}
-          onPress={() => handleSSO('oauth_github')}
-          disabled={activeProvider !== null}
-        />
-        <PremiumButton
-          icon="logo-gitlab"
-          label={activeProvider === 'oauth_gitlab' ? 'Connecting GitLab…' : 'Continue with GitLab'}
-          variant="secondary"
-          onPress={() => handleSSO('oauth_gitlab')}
-          disabled={activeProvider !== null}
-        />
-        <PremiumButton
-          icon="logo-apple"
-          label={activeProvider === 'oauth_apple' ? 'Connecting Apple…' : 'Continue with Apple'}
-          variant="secondary"
-          onPress={() => handleSSO('oauth_apple')}
-          disabled={activeProvider !== null}
-        />
-      </View>
-
-      {authError ? (
-        <Text selectable className="text-[12px] leading-5 text-[#ff96cf]">
-          {authError}
-        </Text>
-      ) : null}
-
-      <View className="gap-3 pt-2">
-        <PremiumButton
-          label="Use without signing in"
-          variant="ghost"
-          onPress={() => router.push('/(tabs)/sessions')}
-        />
-        <View className="flex-row items-center justify-center gap-1">
-          <Text className="text-[14px] text-white/46">Prefer email?</Text>
-          <Text
-            selectable
-            onPress={() => router.push('/(auth)/sign-in')}
-            className="text-[14px] font-semibold text-rzr-cyan">
-            Use a code instead
+        {authError ? (
+          <Text selectable className="text-center text-[12px] leading-5 text-[#ff96cf]">
+            {authError}
           </Text>
-        </View>
+        ) : null}
       </View>
     </HeaderWithContentScreen>
   );
