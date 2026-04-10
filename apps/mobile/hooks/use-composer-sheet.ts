@@ -11,7 +11,7 @@ import {
 } from 'react-native-reanimated';
 import { type WebView } from 'react-native-webview';
 
-const COMPOSER_DETENTS = [142, 240, 420] as const;
+const COMPOSER_DETENTS = [108, 240, 420] as const;
 
 function snapToNearest(value: number, points: readonly number[]) {
   'worklet';

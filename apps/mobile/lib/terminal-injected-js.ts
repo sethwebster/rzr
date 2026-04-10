@@ -1,10 +1,12 @@
 type InjectedScriptsParams = {
   headerHeight: number;
+  composerReservedHeight?: number;
   radialEnabled: boolean;
 };
 
 export function buildInjectedScripts({
   headerHeight,
+  composerReservedHeight = 0,
   radialEnabled,
 }: InjectedScriptsParams) {
   const injectedCSS = `
@@ -27,6 +29,7 @@ export function buildInjectedScripts({
     }
     .classic-screen{
       padding-top:${headerHeight}px!important;
+      padding-bottom:${composerReservedHeight}px!important;
       width:100%!important;
       max-width:100%!important;
       overflow-x:hidden!important;

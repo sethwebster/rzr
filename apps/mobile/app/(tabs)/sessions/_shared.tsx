@@ -369,7 +369,7 @@ function ActiveTerminalSessionSurface({
     onWebViewLoad,
   } = useComposerSheet(webViewRef, session?.id, insets.bottom);
   const headerHeight = insets.top + 80;
-  const composerReservedHeight = COMPOSER_DETENTS[0];
+  const composerReservedHeight = COMPOSER_DETENTS[0] + insets.bottom;
 
   const terminalKeyboardStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: -keyboard.height.value }],
@@ -584,10 +584,8 @@ function ActiveTerminalSessionSurface({
                     className="flex-1 overflow-hidden rounded-panel"
                     style={{ backgroundColor: 'transparent' }}>
                     <GestureDetector gesture={composerSheetGesture}>
-                      <View
-                        className="items-center px-4 pb-2 pt-3"
-                        style={{ backgroundColor: 'rgba(5,8,22,0.62)' }}>
-                        <View className="h-1.5 w-12 rounded-full bg-white/20" />
+                      <View className="absolute left-0 right-0 top-0 z-10 items-center pt-1.5">
+                        <View className="h-1 w-10 rounded-full bg-white/24" />
                       </View>
                     </GestureDetector>
 

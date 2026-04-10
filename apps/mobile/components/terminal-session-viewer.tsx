@@ -90,6 +90,7 @@ export function TerminalSessionViewer({
   mode = "full",
   webViewRef,
   headerHeight = 0,
+  composerReservedHeight = 0,
   radialEnabled = false,
   onLoadEnd,
   onError,
@@ -114,6 +115,7 @@ export function TerminalSessionViewer({
   }, [authToken, mode, sessionUrl]);
   const fullModeScripts = buildInjectedScripts({
     headerHeight,
+    composerReservedHeight,
     radialEnabled,
   });
   const injectedBeforeLoad =
@@ -213,7 +215,6 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: "#050816",
-    paddingBottom: 180
   },
   loadingWrap: {
     ...StyleSheet.absoluteFillObject,
