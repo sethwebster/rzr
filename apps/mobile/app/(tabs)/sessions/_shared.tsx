@@ -577,12 +577,12 @@ function ActiveTerminalSessionSurface({
 
               <Animated.View style={[styles.composerOverlay, composerAnimStyle]}>
                 <LiquidGlassCard
-                  className="mx-0 h-full rounded-panel bg-transparent"
+                  className="mx-0 h-full bg-transparent"
                   tintColor="rgba(255,255,255,0.03)"
-                  style={{ borderWidth: 0 }}>
+                  style={{ borderWidth: 0, borderRadius: 20 }}>
                   <View
-                    className="flex-1 overflow-hidden rounded-panel"
-                    style={{ backgroundColor: 'transparent' }}>
+                    className="flex-1 overflow-hidden"
+                    style={{ backgroundColor: 'transparent', borderRadius: 20 }}>
                     <GestureDetector gesture={composerSheetGesture}>
                       <View className="absolute left-0 right-0 top-0 z-10 items-center pt-1.5">
                         <View className="h-1 w-10 rounded-full bg-white/24" />
