@@ -34,6 +34,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "sethwebster@gmail.com",
+        "ascAppId": "6761669157",
+        "appleTeamId": "P8ZBH5878Q"
+      }
+    }
   }
 }

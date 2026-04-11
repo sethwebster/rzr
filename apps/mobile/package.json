@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "postinstall": "bash scripts/patch-expo-widgets.sh",
     "ota:preview": "eas update --channel preview --environment preview --platform ios --message",
-    "ota:production": "eas update --channel production --environment production --platform ios --message"
+    "ota:production": "eas update --channel production --environment production --platform ios --message",
+    "build:submit": "npx eas-cli build --platform ios --profile production --auto-submit"
   },
   "dependencies": {
     "@clerk/expo": "^3.1.9",
