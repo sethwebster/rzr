@@ -38,6 +38,12 @@ const config: ExpoConfig = {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoadsInWebContent: true,
         NSAllowsLocalNetworking: true,
+        NSExceptionDomains: {
+          '100.69.189.125': {
+            NSExceptionAllowsInsecureHTTPLoads: true,
+            NSIncludesSubdomains: false,
+          },
+        },
       },
       UIBackgroundModes: ['remote-notification'],
     },

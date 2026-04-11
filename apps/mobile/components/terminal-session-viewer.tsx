@@ -188,7 +188,7 @@ export function TerminalSessionViewer({
       source={{ uri: viewerUrl }}
       startInLoadingState
       originWhitelist={["*"]}
-      style={[styles.webview, style]}
+      style={[styles.webview, { paddingBottom: composerReservedHeight || 0 }, style]}
       bounces={true}
       overScrollMode="never"
       textInteractionEnabled={textInteractionEnabled ?? interactive}
