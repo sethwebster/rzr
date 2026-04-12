@@ -20,6 +20,7 @@ import { Toaster } from 'sonner-native';
 
 import { TOASTER_CONFIG } from '@/lib/toast-config';
 
+import { useAutoCheckUpdates } from '@/hooks/use-app-updates';
 import { useNotificationBridge } from '@/hooks/use-notification-bridge';
 import { usePushTokenRegistration } from '@/hooks/use-push-token-registration';
 import { useRzrActiveSessionsWidgetSync, useRzrHomeWidgetSync, useRzrLiveActivitySync } from '@/hooks/use-rzr-widget-sync';
@@ -72,6 +73,21 @@ function useAppStateSync() {
   }, [manager]);
 }
 
+function UpdateCheckBridge() {
+  useAutoCheckUpdates();
+  return null;
+}
+
+function SplashGate() {
+  const { hydrated } = useAuth();
+
+  useEffect(() => {
+    if (hydrated) SplashScreen.hideAsync().catch(() => null);
+  }, [hydrated]);
+
+  return null;
+}
+
 function NotificationBridge() {
   useNotificationBridge();
   useUniversalLink();
@@ -105,6 +121,8 @@ export default function RootLayout() {
             <TerminalSettingsProvider>
               <SessionProvider>
                 <ThemeProvider value={NAV_THEME}>
+                  <SplashGate />
+                  <UpdateCheckBridge />
                   <NotificationBridge />
                   <SessionManagerBridge />
                   <WidgetBridge />
@@ -133,7 +151,7 @@ export default function RootLayout() {
                   />
                   <Stack.Screen
                     name="auth"
-                    options={{ presentation: 'transparentModal', animation: 'fade' }}
+                    options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: '#050816' } }}
                   />
                   <Stack.Screen
                     name="composer-v2"
@@ -155,11 +173,11 @@ export default function RootLayout() {
                   />
                   <Stack.Screen
                     name="connect"
-                    options={{ presentation: 'transparentModal', animation: 'fade' }}
+                    options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: '#050816' } }}
                   />
                   <Stack.Screen
                     name="design-system"
-                    options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+                    options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom', contentStyle: { backgroundColor: '#050816' } }}
                   />
                   <Stack.Screen name="+not-found" />
                 </Stack>

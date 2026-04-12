@@ -1,7 +1,39 @@
 import ExpoModulesCore
 import UIKit
 
-/// Display-only terminal view — refuses first responder so the React composer
+/// Interactive terminal — dark keyboard, no autocorrect.
+private final class InteractiveTerminalView: TerminalView {
+  override var keyboardAppearance: UIKeyboardAppearance {
+    get { .dark }
+    set { /* fixed */ }
+  }
+  override var autocorrectionType: UITextAutocorrectionType {
+    get { .no }
+    set { /* fixed */ }
+  }
+  override var autocapitalizationType: UITextAutocapitalizationType {
+    get { .none }
+    set { /* fixed */ }
+  }
+  override var spellCheckingType: UITextSpellCheckingType {
+    get { .no }
+    set { /* fixed */ }
+  }
+  override var smartDashesType: UITextSmartDashesType {
+    get { .no }
+    set { /* fixed */ }
+  }
+  override var smartQuotesType: UITextSmartQuotesType {
+    get { .no }
+    set { /* fixed */ }
+  }
+  override var smartInsertDeleteType: UITextSmartInsertDeleteType {
+    get { .no }
+    set { /* fixed */ }
+  }
+}
+
+/// Display-only terminal — refuses first responder so the React composer
 /// can own keyboard input without SwiftTerm re-claiming focus on any tap.
 private final class DisplayOnlyTerminalView: TerminalView {
   override var canBecomeFirstResponder: Bool { false }
@@ -18,13 +50,13 @@ class ExpoSwiftTermView: ExpoView, TerminalViewDelegate {
   private var currentFontSize: CGFloat = 14
   private var currentFontFamily: String = "Menlo"
   private var lastFeedSeq: Int = -1
-  private var lastAppliedScrollSeq: Int = -1
-  private var lastAppliedScrollTotal: CGFloat = 0
+  private var interactive: Bool = true
 
   let onData = EventDispatcher()
   let onResize = EventDispatcher()
   let onTitleChange = EventDispatcher()
   let onBell = EventDispatcher()
+  let onFocusChange = EventDispatcher()
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -36,17 +68,16 @@ class ExpoSwiftTermView: ExpoView, TerminalViewDelegate {
     let font = UIFont(name: currentFontFamily, size: currentFontSize)
       ?? UIFont.monospacedSystemFont(ofSize: currentFontSize, weight: .regular)
 
-    terminalView = DisplayOnlyTerminalView(frame: .zero, font: font)
+    terminalView = interactive
+      ? InteractiveTerminalView(frame: .zero, font: font)
+      : DisplayOnlyTerminalView(frame: .zero, font: font)
     terminalView.terminalDelegate = self
     terminalView.translatesAutoresizingMaskIntoConstraints = false
-    // Disable touch dispatch on the terminal view so taps fall through to the
-    // React composer sibling. Scrolling is driven programmatically by setting
-    // `contentOffset.y` via the `contentOffsetY` prop — which works regardless
-    // of `isUserInteractionEnabled` because it's a direct property assignment,
-    // not a touch-triggered gesture. SwiftTerm's iOS draw path reads
-    // `contentOffset.y / cellHeight` to compute the first visible row, so
-    // this is what actually moves the viewport on screen.
-    terminalView.isUserInteractionEnabled = false
+
+    if !interactive {
+      terminalView.isUserInteractionEnabled = false
+    }
+
     addSubview(terminalView)
 
     NSLayoutConstraint.activate([
@@ -57,21 +88,34 @@ class ExpoSwiftTermView: ExpoView, TerminalViewDelegate {
     ])
   }
 
+  func updateInteractive(_ value: Bool) {
+    guard value != interactive else { return }
+    interactive = value
+    terminalView.removeFromSuperview()
+    setupTerminal()
+  }
+
+  // MARK: - Focus
+
+  func focus() {
+    terminalView.becomeFirstResponder()
+  }
+
+  func blur() {
+    terminalView.resignFirstResponder()
+  }
+
+  // MARK: - Layout
+
   private var lastEmittedCols: Int = 0
   private var lastEmittedRows: Int = 0
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    // Force SwiftTerm to recalculate its grid dimensions after layout.
     if bounds.width > 0 && bounds.height > 0 {
       terminalView.setNeedsLayout()
       terminalView.layoutIfNeeded()
 
-      // SwiftTerm's own `sizeChanged` delegate only fires when dimensions
-      // actually change — if the default terminal grid happens to match the
-      // first computed grid, the delegate is silent and our JS side never
-      // learns the real cols/rows. Emit from here so the WS client always
-      // sees the current grid size as soon as the view has bounds.
       let terminal = terminalView.getTerminal()
       let cols = terminal.cols
       let rows = terminal.rows
@@ -113,43 +157,9 @@ class ExpoSwiftTermView: ExpoView, TerminalViewDelegate {
     }
   }
 
-  // MARK: - Scroll control
-
-  /// Handles a JS-side scroll packet formatted as "<seq>:<totalPoints>".
-  /// `totalPoints` is the cumulative total scroll delta the JS PanResponder
-  /// has tracked since mount; we diff against our own last-applied total to
-  /// compute the incremental delta that actually needs to be applied to
-  /// `terminalView.contentOffset.y`. A negative delta scrolls UP through the
-  /// scrollback (older content). Positive scrolls DOWN toward live output.
-  ///
-  /// Relative deltas sidestep the JS-vs-native contentOffset sync problem:
-  /// JS never needs to know the absolute native position, and the delta is
-  /// applied on top of whatever the scroll view is currently showing (which
-  /// may include auto-follow-bottom updates from `updateScroller`).
-  func handleScrollPacket(_ packet: String) {
-    let parts = packet.split(separator: ":", maxSplits: 1).map(String.init)
-    guard parts.count == 2, let seq = Int(parts[0]), let totalFloat = Double(parts[1]) else {
-      return
-    }
-    guard seq > lastAppliedScrollSeq else { return }
-    lastAppliedScrollSeq = seq
-    let total = CGFloat(totalFloat)
-    let delta = total - lastAppliedScrollTotal
-    lastAppliedScrollTotal = total
-    if delta == 0 { return }
-
-    let maxY = max(0, terminalView.contentSize.height - terminalView.bounds.height)
-    let newY = max(0, min(terminalView.contentOffset.y + delta, maxY))
-    terminalView.contentOffset = CGPoint(x: 0, y: newY)
-  }
-
   // MARK: - Feed packet prop
 
   func handleFeedPacket(_ packet: String) {
-    // Packet format: { "chunks": [ { "s": Int, "k": "t"|"b", "d": String }, ... ] }
-    // The JS side re-sends the full unflushed buffer on every flush to defeat
-    // React auto-batching coalescing; we skip chunks we've already applied by
-    // tracking `lastFeedSeq`.
     guard let data = packet.data(using: .utf8) else { return }
     guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       return

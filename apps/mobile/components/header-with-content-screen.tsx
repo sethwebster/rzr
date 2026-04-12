@@ -45,6 +45,7 @@ export function HeaderWithContentScreen({
 
       <SafeAreaView edges={['top']} className="flex-1">
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           refreshControl={
             onRefresh ? (
               <RefreshControl

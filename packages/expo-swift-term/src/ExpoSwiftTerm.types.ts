@@ -5,14 +5,14 @@ export interface ExpoSwiftTermNativeProps extends ViewProps {
   fontFamily?: string;
   foregroundColor?: string;
   backgroundColor?: string;
+  interactive?: boolean;
   /** Internal: sequence-tagged data packet for feeding the terminal */
   feedPacket?: string;
-  /** Internal: sequence-tagged scroll packet "<seq>:<cumulativeDeltaY>". */
-  scrollPacket?: string;
   onData?: (event: { nativeEvent: { data: string } }) => void;
   onResize?: (event: { nativeEvent: { cols: number; rows: number } }) => void;
   onTitleChange?: (event: { nativeEvent: { title: string } }) => void;
   onBell?: () => void;
+  onFocusChange?: (event: { nativeEvent: { focused: boolean } }) => void;
 }
 
 export interface ExpoSwiftTermViewProps extends ViewProps {
@@ -24,6 +24,8 @@ export interface ExpoSwiftTermViewProps extends ViewProps {
   foregroundColor?: string;
   /** Background color as hex string (default: "#000000") */
   backgroundColor?: string;
+  /** Enable keyboard input, native scrolling, and text selection (default: true) */
+  interactive?: boolean;
   /** Called when user types — payload is base64-encoded bytes */
   onData?: (event: { nativeEvent: { data: string } }) => void;
   /** Called when terminal dimensions change */
@@ -32,6 +34,8 @@ export interface ExpoSwiftTermViewProps extends ViewProps {
   onTitleChange?: (event: { nativeEvent: { title: string } }) => void;
   /** Called when terminal bell fires */
   onBell?: () => void;
+  /** Called when terminal focus changes */
+  onFocusChange?: (event: { nativeEvent: { focused: boolean } }) => void;
 }
 
 export interface ExpoSwiftTermRef {
@@ -39,6 +43,8 @@ export interface ExpoSwiftTermRef {
   write(data: string): void;
   /** Write a UTF-8 string to the terminal */
   writeText(text: string): void;
-  /** Scroll the viewport by `delta` points (negative = toward older content). */
-  scrollBy(delta: number): void;
+  /** Focus the terminal (show keyboard) */
+  focus(): void;
+  /** Blur the terminal (hide keyboard) */
+  blur(): void;
 }

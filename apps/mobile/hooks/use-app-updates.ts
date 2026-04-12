@@ -1,60 +1,91 @@
 import * as Updates from 'expo-updates';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+
+import { toast } from '@/lib/toast';
+
+const DISABLED = __DEV__ || !Updates.isEnabled;
+
+const FALLBACK = {
+  isChecking: false,
+  isUpdatePending: false,
+  message: 'Expo Updates only runs in a production-capable build.',
+  runtimeVersion: Updates.runtimeVersion ?? 'dev',
+  updateId: Updates.updateId ?? 'local',
+  check: async () => {},
+};
 
 export function useAppUpdates() {
-  const [isChecking, setIsChecking] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
-  const [isAvailable, setIsAvailable] = useState(false);
-  const [message, setMessage] = useState('No update check yet.');
+  if (DISABLED) return FALLBACK;
+  return useAppUpdatesImpl();
+}
+
+function useAppUpdatesImpl() {
+  const {
+    currentlyRunning,
+    isUpdateAvailable,
+    isUpdatePending,
+    isChecking,
+    isDownloading,
+  } = Updates.useUpdates();
+
+  const toastFiredRef = useRef(false);
+  const fetchTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    if (isUpdateAvailable && !isUpdatePending && !isDownloading && !fetchTriggeredRef.current) {
+      fetchTriggeredRef.current = true;
+      Updates.fetchUpdateAsync().catch(() => {});
+    }
+  }, [isUpdateAvailable, isUpdatePending, isDownloading]);
+
+  useEffect(() => {
+    if (isUpdatePending && !toastFiredRef.current) {
+      toastFiredRef.current = true;
+      toast.success('Update downloaded — restart to apply', {
+        duration: Infinity,
+      });
+    }
+  }, [isUpdatePending]);
 
   const check = useCallback(async () => {
-    if (__DEV__ || !Updates.isEnabled) {
-      setMessage('Expo Updates only runs in a production-capable build.');
-      return;
-    }
-
-    setIsChecking(true);
     try {
       const result = await Updates.checkForUpdateAsync();
-      setIsAvailable(result.isAvailable);
-      setMessage(
-        result.isAvailable
-          ? 'A fresher build is ready.'
-          : 'You are already on the sharpest build.',
-      );
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Update check failed.');
-    } finally {
-      setIsChecking(false);
-    }
+      if (result.isAvailable) {
+        await Updates.fetchUpdateAsync();
+      }
+    } catch {}
   }, []);
 
-  const apply = useCallback(async () => {
-    if (!isAvailable || __DEV__ || !Updates.isEnabled) {
-      return;
-    }
+  const message = isDownloading
+    ? 'Downloading update…'
+    : isUpdatePending
+      ? 'Restart to apply update.'
+      : isChecking
+        ? 'Checking for updates…'
+        : isUpdateAvailable
+          ? 'Update available.'
+          : 'You are on the latest build.';
 
-    setIsApplying(true);
-    try {
-      await Updates.fetchUpdateAsync();
-      await Updates.reloadAsync();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Update apply failed.');
-      setIsApplying(false);
-    }
-  }, [isAvailable]);
+  return {
+    isChecking: isChecking || isDownloading,
+    isUpdatePending,
+    message,
+    runtimeVersion: currentlyRunning.runtimeVersion ?? 'dev',
+    updateId: currentlyRunning.updateId ?? 'local',
+    check,
+  };
+}
 
-  return useMemo(
-    () => ({
-      check,
-      apply,
-      isChecking,
-      isApplying,
-      isAvailable,
-      message,
-      runtimeVersion: Updates.runtimeVersion ?? 'dev',
-      updateId: Updates.updateId ?? 'local',
-    }),
-    [check, apply, isChecking, isApplying, isAvailable, message],
-  );
+export function useAutoCheckUpdates() {
+  const { check } = useAppUpdates();
+  const checkRef = useRef(check);
+  checkRef.current = check;
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state: string) => {
+      if (state === 'active') checkRef.current();
+    });
+    return () => sub.remove();
+  }, []);
 }

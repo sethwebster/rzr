@@ -129,7 +129,9 @@ export function ComposerV2({
     setSelection(event.nativeEvent.selection);
   };
 
-  const handleChangeText = (next: string) => {
+  const handleChangeText = (raw: string) => {
+    // iOS smart punctuation converts -- to em dash; undo it for terminal input
+    const next = raw.replaceAll('\u2014', '--').replaceAll('\u2013', '--');
     if (immediateMode) {
       const previous = lastTextRef.current;
       if (next === previous) return;
@@ -391,6 +393,8 @@ export function ComposerV2({
           placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
           autoCorrect={false}
+          smartInsertDelete={false}
+          spellCheck={false}
           multiline
           textAlignVertical="top"
           returnKeyType={multilineMode ? 'default' : 'send'}

@@ -382,8 +382,8 @@ export default function SignalsScreen() {
                 Runtime {updates.runtimeVersion} · update {updates.updateId}
               </Text>
             </View>
-            <Text className="text-[12px] font-semibold uppercase tracking-[0.14em] text-rzr-cyan">
-              {updates.isApplying ? 'Applying' : 'Ready'}
+            <Text className={`text-[12px] font-semibold uppercase tracking-[0.14em] ${updates.isUpdatePending ? 'text-[#69f0b7]' : 'text-rzr-cyan'}`}>
+              {updates.isUpdatePending ? 'Restart' : 'Ready'}
             </Text>
           </View>
           <Text className="mt-3 text-[13px] leading-6 text-white/60">{updates.message}</Text>
@@ -393,12 +393,6 @@ export default function SignalsScreen() {
               icon="refresh"
               className="flex-1"
               onPress={updates.check}
-            />
-            <PremiumButton
-              label={updates.isApplying ? 'Applying…' : 'Apply'}
-              icon="download-outline"
-              variant="secondary"
-              onPress={updates.apply}
             />
           </View>
         </InsetPanel>

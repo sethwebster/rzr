@@ -6,7 +6,6 @@ import { Linking, View as RNView } from 'react-native';
 import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import { ClerkAuthShell } from '@/components/clerk-auth-shell';
-import { HeaderWithContentScreen } from '@/components/header-with-content-screen';
 import { PremiumButton } from '@/components/premium-button';
 import { useResendCooldown } from '@/hooks/use-resend-cooldown';
 import { Pressable, Text, TextInput, View } from '@/tw';
@@ -24,20 +23,15 @@ export default function SignUpScreen() {
   const { remainingSeconds, resendDisabled, startCooldown } = useResendCooldown();
 
   const triggerHaptic = React.useCallback(async (type: 'success' | 'error' | 'light') => {
-    if (process.env.EXPO_OS !== 'ios') {
-      return;
-    }
-
+    if (process.env.EXPO_OS !== 'ios') return;
     if (type === 'success') {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       return;
     }
-
     if (type === 'error') {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
-
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
@@ -48,7 +42,6 @@ export default function SignUpScreen() {
           console.log(session.currentTask);
           return;
         }
-
         const url = decorateUrl('/');
         if (url.startsWith('http')) {
           await Linking.openURL(url);
@@ -62,12 +55,10 @@ export default function SignUpScreen() {
 
   const handleSubmit = async () => {
     const { error } = await signUp.create({ emailAddress });
-
     if (error) {
       console.error(JSON.stringify(error, null, 2));
       return;
     }
-
     await signUp.verifications.sendEmailCode();
     setAwaitingCode(true);
     startCooldown();
@@ -76,7 +67,6 @@ export default function SignUpScreen() {
 
   const handleVerify = async () => {
     const { error } = await signUp.verifications.verifyEmailCode({ code });
-
     if (!error) {
       await triggerHaptic('success');
       await finalizeSignUp();
@@ -87,17 +77,13 @@ export default function SignUpScreen() {
   };
 
   const handleResendCode = async () => {
-    if (resendDisabled) {
-      return;
-    }
-
+    if (resendDisabled) return;
     const { error } = await signUp.verifications.sendEmailCode();
     if (error) {
       await triggerHaptic('error');
       console.error('Unable to resend sign-up code:', error);
       return;
     }
-
     startCooldown();
     await triggerHaptic('light');
   };
@@ -106,17 +92,22 @@ export default function SignUpScreen() {
     return <Redirect href="/" />;
   }
 
-  if (
+  const isVerifying =
     awaitingCode ||
-    (signUp.status === 'missing_requirements' && signUp.unverifiedFields.includes('email_address'))
-  ) {
-    return (
-      <ClerkAuthShell
-        mode="sign-up"
-        stage="verify"
-        title="Verify your email"
-        statusLabel={`Code sent to ${emailAddress || 'your inbox'}`}
-        subtitle="Enter the one-time code we emailed you to finish creating your account.">
+    (signUp.status === 'missing_requirements' && signUp.unverifiedFields.includes('email_address'));
+
+  return (
+    <ClerkAuthShell
+      mode="sign-up"
+      stage={isVerifying ? 'verify' : 'request'}
+      title={isVerifying ? 'Verify your email' : 'Create account'}
+      statusLabel={isVerifying ? `Code sent to ${emailAddress || 'your inbox'}` : undefined}
+      subtitle={
+        isVerifying
+          ? 'Enter the one-time code we emailed you to finish creating your account.'
+          : 'Enter your email and we\u2019ll send a one-time code to get you set up.'
+      }>
+      {isVerifying ? (
         <Animated.View entering={FadeInDown.duration(260)} exiting={FadeOut.duration(180)} layout={layoutTransition} className="gap-3">
           <Text className="text-[13px] font-semibold uppercase tracking-[0.16em] text-white/44">
             Verification code
@@ -132,7 +123,7 @@ export default function SignUpScreen() {
             maxLength={6}
           />
           <Text selectable className="text-[13px] leading-6 text-white/52">
-            We’ll keep this screen warm for you. If the code doesn’t arrive, you can resend after the cooldown.
+            If the code doesn't arrive, you can resend after the cooldown.
           </Text>
           {errors.fields.code ? (
             <Text selectable className="text-[12px] text-[#ff96cf]">{errors.fields.code.message}</Text>
@@ -165,63 +156,48 @@ export default function SignUpScreen() {
             </Text>
           ) : null}
         </Animated.View>
-      </ClerkAuthShell>
-    );
-  }
+      ) : (
+        <Animated.View entering={FadeInDown.duration(260)} exiting={FadeOut.duration(180)} layout={layoutTransition} className="gap-4">
+          <View className="gap-2">
+            <Text className="text-[13px] font-semibold uppercase tracking-[0.16em] text-white/44">Email address</Text>
+            <TextInput
+              className="rounded-[22px] border border-white/12 bg-white/8 px-4 py-4 text-[17px] text-white"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={emailAddress}
+              placeholder="you@example.com"
+              placeholderTextColor="rgba(255,255,255,0.38)"
+              onChangeText={setEmailAddress}
+              keyboardType="email-address"
+            />
+            <Text selectable className="text-[13px] leading-6 text-white/52">
+              Enter your email and we&apos;ll send a one-time code to finish setting up your account.
+            </Text>
+            {errors.fields.emailAddress ? (
+              <Text selectable className="text-[12px] text-[#ff96cf]">{errors.fields.emailAddress.message}</Text>
+            ) : null}
+          </View>
 
-  return (
-    <HeaderWithContentScreen
-      title="rzr."
-      note="Get started."
-      containerClassName="max-w-[460px] self-center"
-      contentClassName="gap-4"
-      bottomPadding={48}
-      staticBackgroundOpacity={0.14}
-      staticBackgroundVignetteOpacity={0.88}>
-      <Animated.View entering={FadeInDown.duration(260)} exiting={FadeOut.duration(180)} layout={layoutTransition} className="gap-4">
-        <View className="gap-2">
-          <Text className="text-[13px] font-semibold uppercase tracking-[0.16em] text-white/44">Email address</Text>
-          <TextInput
-            className="rounded-[22px] border border-white/12 bg-white/8 px-4 py-4 text-[17px] text-white"
-            autoCapitalize="none"
-            autoCorrect={false}
-            value={emailAddress}
-            placeholder="you@example.com"
-            placeholderTextColor="rgba(255,255,255,0.38)"
-            onChangeText={setEmailAddress}
-            keyboardType="email-address"
+          <PremiumButton
+            icon="mail-open-outline"
+            label={fetchStatus === 'fetching' ? 'Sending…' : 'Send email code'}
+            onPress={handleSubmit}
+            disabled={!emailAddress || fetchStatus === 'fetching'}
+            className="mt-1"
           />
-          <Text selectable className="text-[13px] leading-6 text-white/52">
-            Enter your email and we&apos;ll send a one-time code to finish setting up your account.
-          </Text>
-          {errors.fields.emailAddress ? (
-            <Text selectable className="text-[12px] text-[#ff96cf]">{errors.fields.emailAddress.message}</Text>
-          ) : null}
-        </View>
 
-        <PremiumButton
-          icon="mail-open-outline"
-          label={fetchStatus === 'fetching' ? 'Sending…' : 'Send email code'}
-          onPress={handleSubmit}
-          disabled={!emailAddress || fetchStatus === 'fetching'}
-          className="mt-1"
-        />
+          <View className="flex-row items-center gap-1 pt-1">
+            <Text className="text-[14px] text-white/58">Already have an account?</Text>
+            <Link href="/(auth)/sign-in" asChild>
+              <Pressable>
+                <Text className="text-[14px] font-semibold text-rzr-cyan">Sign in</Text>
+              </Pressable>
+            </Link>
+          </View>
 
-        {errors ? (
-          <Text selectable className="text-[11px] leading-5 text-white/40">{JSON.stringify(errors, null, 2)}</Text>
-        ) : null}
-
-        <View className="flex-row items-center gap-1 pt-1">
-          <Text className="text-[14px] text-white/58">Already have an account?</Text>
-          <Link href="/(auth)/sign-in" asChild>
-            <Pressable>
-              <Text className="text-[14px] font-semibold text-rzr-cyan">Sign in</Text>
-            </Pressable>
-          </Link>
-        </View>
-
-        <RNView nativeID="clerk-captcha" />
-      </Animated.View>
-    </HeaderWithContentScreen>
+          <RNView nativeID="clerk-captcha" />
+        </Animated.View>
+      )}
+    </ClerkAuthShell>
   );
 }

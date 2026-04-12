@@ -5,7 +5,7 @@ public class ExpoSwiftTermModule: Module {
     Name("ExpoSwiftTerm")
 
     View(ExpoSwiftTermView.self) {
-      Events("onData", "onResize", "onTitleChange", "onBell")
+      Events("onData", "onResize", "onTitleChange", "onBell", "onFocusChange")
 
       Prop("fontSize") { (view: ExpoSwiftTermView, size: Double) in
         view.updateFontSize(CGFloat(size))
@@ -27,8 +27,8 @@ public class ExpoSwiftTermModule: Module {
         view.handleFeedPacket(packet)
       }
 
-      Prop("scrollPacket") { (view: ExpoSwiftTermView, packet: String) in
-        view.handleScrollPacket(packet)
+      Prop("interactive") { (view: ExpoSwiftTermView, value: Bool) in
+        view.updateInteractive(value)
       }
     }
   }

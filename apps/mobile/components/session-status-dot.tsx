@@ -10,7 +10,7 @@ import { View } from '@/tw';
 
 import type { TerminalSession } from '@/types/session';
 
-const COLORS = {
+export const COLORS = {
   green: '#69f0b7',
   amber: '#ffd36a',
   red: '#ff6a6a',

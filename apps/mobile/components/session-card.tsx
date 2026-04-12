@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, {
@@ -15,7 +16,7 @@ import { Pressable, Text, View } from '@/tw';
 
 import { LiquidGlassCard } from '@/components/liquid-glass-card';
 import { radii } from '@/lib/design-system';
-import { SessionStatusDot, getSessionStatusColor } from '@/components/session-status-dot';
+import { COLORS, SessionStatusDot, getSessionStatusColor } from '@/components/session-status-dot';
 import { formatRelativeTime, stripGatewaySuffix } from '@/lib/utils';
 import type { TerminalSession } from '@/types/session';
 
@@ -30,53 +31,49 @@ type Props = {
 
 const GLOW_STOPS = [0, 0.16, 0.32, 0.5, 0.68, 0.84, 1] as const;
 
-function getStatusLabel(session: TerminalSession) {
-  if (session.awaitingInput) return 'Waiting';
+type StatusInfo = {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
+function getStatusInfo(session: TerminalSession): StatusInfo {
+  if (session.awaitingInput) return { label: 'Waiting', icon: 'chatbubble-ellipses' };
   switch (session.liveState) {
     case 'live':
-      return 'Live';
+      return { label: 'Live', icon: 'radio' };
     case 'idle':
-      return 'Idle';
+      return { label: 'Idle', icon: 'moon' };
     case 'degraded':
-      return 'Degraded';
+      return { label: 'Degraded', icon: 'warning' };
     case 'offline':
-      return 'Offline';
+      return { label: 'Offline', icon: 'cloud-offline' };
     case 'connecting':
-      return 'Connecting';
+      return { label: 'Connecting', icon: 'sync' };
     case 'readonly':
-      return 'Read-only';
+      return { label: 'Read-only', icon: 'eye' };
     case 'missing':
-      return 'Missing';
+      return { label: 'Missing', icon: 'help-circle' };
     case 'exited':
-      return 'Exited';
+      return { label: 'Exited', icon: 'stop-circle' };
     case 'locked':
-      return 'Locked';
+      return { label: 'Locked', icon: 'lock-closed' };
     default:
-      return null;
+      return { label: 'Unknown', icon: 'ellipse' };
   }
 }
 
-function getPreviewLines(session: TerminalSession) {
-  if (session.previewLines && session.previewLines.length > 0) {
-    return session.previewLines.slice(0, 4);
-  }
+function isSessionConnected(session: TerminalSession) {
+  return session.liveState === 'live' || session.liveState === 'idle';
+}
 
-  return [
-    `$ rzr open ${session.label.toLowerCase().replace(/\s+/g, '-')}`,
-    session.liveState === 'live'
-      ? 'session live'
-      : session.liveState === 'idle'
-        ? 'session idle'
-        : session.liveState === 'degraded'
-          ? 'session stale'
-          : session.liveState === 'offline'
-            ? 'session offline'
-        : session.liveState === 'locked'
-          ? 'password required'
-          : 'session saved',
-    session.awaitingInput ? 'waiting for input…' : 'ready to reconnect',
-    session.url.replace(/^https?:\/\//, '').slice(0, 26),
-  ];
+function getBridgeInfo(session: TerminalSession) {
+  if (session.syncStatus === 'error')
+    return { icon: 'unlink' as const, label: 'Disconnected', color: COLORS.red };
+  if (session.syncStatus === 'syncing')
+    return { icon: 'sync' as const, label: 'Syncing', color: COLORS.cyan };
+  if (isSessionConnected(session))
+    return { icon: 'link' as const, label: 'Connected', color: COLORS.green };
+  return { icon: 'unlink' as const, label: 'No bridge', color: COLORS.dim };
 }
 
 export function SessionCard({
@@ -87,7 +84,9 @@ export function SessionCard({
   onPress,
   onLongPress,
 }: Props) {
-  const previewLines = getPreviewLines(session);
+  const status = getStatusInfo(session);
+  const statusColor = getSessionStatusColor(session);
+  const bridge = getBridgeInfo(session);
   const charge = useSharedValue(0);
 
   useEffect(() => {
@@ -158,12 +157,10 @@ export function SessionCard({
                 {formatRelativeTime(session.lastConnectedAt)}
               </Text>
               <View className="mt-2 flex-row items-center gap-1.5">
-                <SessionStatusDot session={session} size="sm" />
-                {getStatusLabel(session) ? (
-                  <Text className="text-[9px] font-semibold" style={{ color: getSessionStatusColor(session) }}>
-                    {getStatusLabel(session)}
-                  </Text>
-                ) : null}
+                <Ionicons name={status.icon} size={10} color={statusColor} />
+                <Text className="text-[9px] font-semibold" style={{ color: statusColor }}>
+                  {status.label}
+                </Text>
               </View>
             </LiquidGlassCard>
           </Animated.View>
@@ -193,35 +190,26 @@ export function SessionCard({
                   {formatRelativeTime(session.lastConnectedAt)}
                 </Text>
               </View>
-              <View className="flex-row items-center gap-1.5">
-                <SessionStatusDot session={session} />
-                {getStatusLabel(session) ? (
-                  <Text className="text-[10px] font-semibold" style={{ color: getSessionStatusColor(session) }}>
-                    {getStatusLabel(session)}
-                  </Text>
-                ) : null}
-              </View>
+              <SessionStatusDot session={session} />
+            </View>
+            <View className="mt-4 flex-row items-center rounded-micro bg-white/5 px-3 py-2.5" style={{ borderRadius: radii.micro }}>
+              <Ionicons name={status.icon} size={14} color={statusColor} />
+              <Text className="ml-2 flex-1 text-[12px] font-semibold" style={{ color: statusColor }}>
+                {status.label}
+              </Text>
+              {session.awaitingInput ? (
+                <View className="rounded-full bg-[#ff96cf]/16 px-2 py-0.5">
+                  <Text className="text-[10px] font-bold text-[#ff96cf]">INPUT</Text>
+                </View>
+              ) : null}
             </View>
 
-            <View className="mt-4 overflow-hidden rounded-micro border border-white/8 bg-[#050816]/92" style={{ height: 118 }}>
-              <View className="flex-1 justify-center px-3 py-2">
-                {previewLines.map((line, index) => (
-                  <Text
-                    key={`${session.id}-${index}-${line}`}
-                    className={`font-mono text-[12px] leading-5 ${
-                      index === 0
-                        ? 'text-white/86'
-                        : line.includes('waiting')
-                          ? 'text-[#ff96cf]'
-                          : line.includes('live')
-                            ? 'text-rzr-cyan'
-                            : 'text-white/58'
-                    }`}
-                    numberOfLines={1}>
-                    {line}
-                  </Text>
-                ))}
-              </View>
+            <View className="mt-2 flex-row items-center rounded-micro bg-white/5 px-3 py-2.5" style={{ borderRadius: radii.micro }}>
+              <Ionicons name={bridge.icon} size={13} color={bridge.color} />
+              <Text className="ml-2 flex-1 text-[12px] font-medium" style={{ color: bridge.color }}>
+                {bridge.label}
+              </Text>
+              <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.2)" />
             </View>
           </LiquidGlassCard>
         </Animated.View>
@@ -293,21 +281,13 @@ export function SessionCardSkeleton({ compact }: { compact?: boolean }) {
               <SkeletonBar shimmer={shimmer} width={56} height={9} />
             </View>
           </View>
-          <View className="flex-row items-center gap-1.5">
-            <SkeletonBar shimmer={shimmer} width={8} height={8} />
-            <SkeletonBar shimmer={shimmer} width={28} height={9} />
-          </View>
+          <SkeletonBar shimmer={shimmer} width={8} height={8} />
         </View>
-
-        <View
-          className="mt-4 overflow-hidden rounded-micro border border-white/8 bg-[#050816]/92"
-          style={{ height: 118 }}>
-          <View className="flex-1 justify-center gap-2 px-3 py-2">
-            <SkeletonBar shimmer={shimmer} width="80%" height={10} />
-            <SkeletonBar shimmer={shimmer} width="55%" height={10} />
-            <SkeletonBar shimmer={shimmer} width="65%" height={10} />
-            <SkeletonBar shimmer={shimmer} width="40%" height={10} />
-          </View>
+        <View className="mt-4 rounded-micro bg-white/5 px-3 py-2.5" style={{ borderRadius: radii.micro }}>
+          <SkeletonBar shimmer={shimmer} width="55%" height={12} />
+        </View>
+        <View className="mt-2 rounded-micro bg-white/5 px-3 py-2.5" style={{ borderRadius: radii.micro }}>
+          <SkeletonBar shimmer={shimmer} width="40%" height={12} />
         </View>
       </LiquidGlassCard>
     </View>

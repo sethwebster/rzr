@@ -335,7 +335,7 @@ export function SessionDetailScreen({
   }, [activateSession, activeSession?.id, router, sessionExists, sessionId]);
 
   if (!sessionExists) {
-    return null;
+    return <RNView style={{ flex: 1, backgroundColor: '#050816' }} />;
   }
 
   return <ActiveTerminalSessionSurface sessionId={sessionId} visible />;
