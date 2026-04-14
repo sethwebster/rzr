@@ -1,26 +1,19 @@
 import * as Updates from 'expo-updates';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 
 import { toast } from '@/lib/toast';
 
-const DISABLED = __DEV__ || !Updates.isEnabled;
-
-const FALLBACK = {
-  isChecking: false,
-  isUpdatePending: false,
-  message: 'Expo Updates only runs in a production-capable build.',
-  runtimeVersion: Updates.runtimeVersion ?? 'dev',
-  updateId: Updates.updateId ?? 'local',
-  check: async () => {},
-};
-
+/**
+ * Expo's recommended useUpdates() pattern.
+ *
+ * With checkAutomatically: 'ON_LOAD', the native layer checks on cold start.
+ * This hook observes the lifecycle and shows a toast when an update downloads.
+ *
+ * We skip reloadAsync() because it triggers ErrorRecovery.crash() on iOS 26
+ * beta — the update applies on next cold start instead.
+ */
 export function useAppUpdates() {
-  if (DISABLED) return FALLBACK;
-  return useAppUpdatesImpl();
-}
-
-function useAppUpdatesImpl() {
   const {
     currentlyRunning,
     isUpdateAvailable,
@@ -30,32 +23,21 @@ function useAppUpdatesImpl() {
   } = Updates.useUpdates();
 
   const toastFiredRef = useRef(false);
-  const fetchTriggeredRef = useRef(false);
 
+  // When the native layer finds an available update, download it
   useEffect(() => {
-    if (isUpdateAvailable && !isUpdatePending && !isDownloading && !fetchTriggeredRef.current) {
-      fetchTriggeredRef.current = true;
+    if (isUpdateAvailable && !isUpdatePending && !isDownloading) {
       Updates.fetchUpdateAsync().catch(() => {});
     }
   }, [isUpdateAvailable, isUpdatePending, isDownloading]);
 
+  // When update is downloaded, notify user
   useEffect(() => {
     if (isUpdatePending && !toastFiredRef.current) {
       toastFiredRef.current = true;
-      toast.success('Update downloaded — restart to apply', {
-        duration: Infinity,
-      });
+      toast.success('Update downloaded — restart to apply', { duration: Infinity });
     }
   }, [isUpdatePending]);
-
-  const check = useCallback(async () => {
-    try {
-      const result = await Updates.checkForUpdateAsync();
-      if (result.isAvailable) {
-        await Updates.fetchUpdateAsync();
-      }
-    } catch {}
-  }, []);
 
   const message = isDownloading
     ? 'Downloading update…'
@@ -73,10 +55,19 @@ function useAppUpdatesImpl() {
     message,
     runtimeVersion: currentlyRunning.runtimeVersion ?? 'dev',
     updateId: currentlyRunning.updateId ?? 'local',
-    check,
+    check: async () => {
+      if (__DEV__ || !Updates.isEnabled) return;
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (result.isAvailable) {
+          await Updates.fetchUpdateAsync();
+        }
+      } catch {}
+    },
   };
 }
 
+/** Re-checks on each app foreground for updates published while backgrounded. */
 export function useAutoCheckUpdates() {
   const { check } = useAppUpdates();
   const checkRef = useRef(check);

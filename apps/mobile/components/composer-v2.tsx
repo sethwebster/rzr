@@ -92,12 +92,35 @@ export function ComposerV2({
   const [isFocused, setIsFocused] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [multilineMode, setMultilineMode] = useState(false);
+  const [immediateBuffer, setImmediateBuffer] = useState('');
   const { immediateModeEnabled: immediateMode, setImmediateModeEnabled: setImmediateMode } =
     useTerminalSettings();
   const lastTextRef = useRef(text);
   const inputRef = useRef<RNTextInput>(null);
   const suppressNextSubmitRef = useRef(false);
+  const immediateQueueRef = useRef('');
+  const immediateFlushingRef = useRef(false);
   const { sendInput, pressKey, uploadImage } = useTerminalApi(sessionUrl ?? '', token, auth);
+
+  const flushImmediateQueue = async () => {
+    if (immediateFlushingRef.current) return;
+    immediateFlushingRef.current = true;
+    try {
+      while (immediateQueueRef.current.length > 0) {
+        const chunk = immediateQueueRef.current;
+        immediateQueueRef.current = '';
+        await sendInput(chunk, false);
+      }
+    } finally {
+      immediateFlushingRef.current = false;
+    }
+  };
+
+  const enqueueImmediate = (chars: string) => {
+    if (!chars.length) return;
+    immediateQueueRef.current += chars;
+    void flushImmediateQueue();
+  };
   const uploadingImage = attachments.some((attachment) => attachment.status === 'uploading');
   const uploadedImagePaths = attachments
     .filter((attachment) => attachment.status === 'ready' && attachment.path)
@@ -130,25 +153,28 @@ export function ComposerV2({
   };
 
   const handleChangeText = (raw: string) => {
-    // iOS smart punctuation converts -- to em dash; undo it for terminal input
-    const next = raw.replaceAll('\u2014', '--').replaceAll('\u2013', '--');
     if (immediateMode) {
-      const previous = lastTextRef.current;
-      if (next === previous) return;
+      // Stream keystrokes to remote; do not persist to draft.
+      const previous = immediateBuffer;
+      if (raw === previous) return;
       let commonPrefix = 0;
-      const maxPrefix = Math.min(previous.length, next.length);
-      while (commonPrefix < maxPrefix && previous[commonPrefix] === next[commonPrefix]) {
+      const maxPrefix = Math.min(previous.length, raw.length);
+      while (commonPrefix < maxPrefix && previous[commonPrefix] === raw[commonPrefix]) {
         commonPrefix += 1;
       }
       const backspaces = previous.length - commonPrefix;
-      const added = next.slice(commonPrefix);
+      const added = raw.slice(commonPrefix);
       if (backspaces > 0) {
-        void sendInput('\u007f'.repeat(backspaces), false);
+        enqueueImmediate('\u007f'.repeat(backspaces));
       }
       if (added.length > 0) {
-        void sendInput(added, false);
+        enqueueImmediate(added);
       }
+      setImmediateBuffer(raw);
+      return;
     }
+    // iOS smart punctuation converts -- to em dash; undo it for terminal input.
+    const next = raw.replaceAll('\u2014', '--').replaceAll('\u2013', '--');
     lastTextRef.current = next;
     setText(next);
   };
@@ -183,18 +209,23 @@ export function ComposerV2({
       ? dataBase64
       : `data:${mimeType ?? 'image/jpeg'};base64,${dataBase64}`;
 
-    setAttachments((current) => [
-      ...current,
-      {
-        id: attachmentId,
-        label: filename ?? 'Image',
-        previewUri,
-        path: null,
-        progress: 0,
-        status: 'uploading',
-        error: null,
-      },
-    ]);
+    console.log('[composer] adding attachment', attachmentId);
+    setAttachments((current) => {
+      const next = [
+        ...current,
+        {
+          id: attachmentId,
+          label: filename ?? 'Image',
+          previewUri,
+          path: null,
+          progress: 0,
+          status: 'uploading' as const,
+          error: null,
+        },
+      ];
+      console.log('[composer] attachments count:', next.length);
+      return next;
+    });
 
     try {
       const uploadedPath = await uploadImage({
@@ -242,7 +273,11 @@ export function ComposerV2({
   };
 
   const handlePickImage = async () => {
-    if (!sessionUrl || uploadingImage) return;
+    if (!sessionUrl) {
+      Alert.alert('No session URL', 'Cannot upload without an active session.');
+      return;
+    }
+    if (uploadingImage) return;
 
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -371,180 +406,168 @@ export function ComposerV2({
     onForget?.();
   };
 
-  return (
-    <View className="flex-1 bg-transparent">
-      <View className="min-h-[68px] flex-row items-stretch border-b border-white/10 bg-transparent">
-        <RNTextInput
-          ref={inputRef}
-          value={optimisticText}
-          onChangeText={handleChangeText}
-          selection={selection}
-          onFocus={() => {
-            console.log('[composer] onFocus');
-            setIsFocused(true);
-          }}
-          onBlur={() => {
-            console.log('[composer] onBlur');
-            setIsFocused(false);
-          }}
-          onKeyPress={handleKeyPress}
-          onSelectionChange={handleSelectionChange}
-          placeholder="Type…"
-          placeholderTextColor="rgba(255,255,255,0.32)"
-          autoCapitalize="none"
-          autoCorrect={false}
-          smartInsertDelete={false}
-          spellCheck={false}
-          multiline
-          textAlignVertical="top"
-          returnKeyType={multilineMode ? 'default' : 'send'}
-          submitBehavior={multilineMode ? 'newline' : 'submit'}
-          onSubmitEditing={multilineMode ? undefined : handleSubmitEditing}
-          style={{
-            flex: 1,
-            color: '#fff',
-            fontSize: 17,
-            paddingHorizontal: 16,
-            paddingVertical: 16,
-            backgroundColor: 'rgba(5,8,22,0.62)',
-          }}
-        />
-
-        <View
-          style={{
-            width: 72,
-            paddingRight: 6,
-            backgroundColor: 'rgba(5,8,22,0.62)',
-          }}>
-          <Pressable
-            onPress={handleSend}
-            disabled={disabled}
-            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
-            pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
-            className="flex-1 items-center justify-center bg-transparent"
-            style={({ pressed }) => ({
-              opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
-            })}>
-            <Ionicons name="arrow-up" size={18} color="#7cf6ff" />
-          </Pressable>
-        </View>
-      </View>
-
-      {attachments.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
-          {attachments.map((attachment) => (
-            <View key={attachment.id} style={{ position: 'relative' }}>
-              <InsetPanel
-                className="overflow-hidden"
-                radius="input"
-                padding="none"
-                style={{
-                  width: 78,
-                  height: 78,
-                  opacity: attachment.status === 'uploading' ? 0.7 : 1,
-                }}>
-                <Image
-                  source={{ uri: attachment.previewUri }}
-                  style={{ width: '100%', height: '100%' }}
-                  resizeMode="cover"
-                />
-                {attachment.status === 'uploading' ? (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      right: 0,
-                      bottom: 0,
-                      left: 0,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                    <View
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: radii.input,
-                        backgroundColor: 'rgba(5,8,22,0.72)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.14)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>
-                      <Canvas style={{ width: 36, height: 36 }}>
-                        <Circle
-                          cx={ATTACHMENT_PROGRESS_CENTER.x}
-                          cy={ATTACHMENT_PROGRESS_CENTER.y}
-                          r={ATTACHMENT_PROGRESS_RADIUS}
-                          color="rgba(255,255,255,0.12)"
-                          style="stroke"
-                          strokeWidth={3}
-                        />
-                        {attachment.progress > 0 ? (
-                          <SkiaPath
-                            path={createArcPath(
-                              attachment.progress,
-                              ATTACHMENT_PROGRESS_CENTER,
-                              ATTACHMENT_PROGRESS_RADIUS,
-                            )}
-                            color="#7cf6ff"
-                            style="stroke"
-                            strokeWidth={3}
-                            strokeCap="round"
-                          />
-                        ) : null}
-                      </Canvas>
-                      <View
-                        style={{
-                          position: 'absolute',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                        <Text className="text-[9px] font-semibold text-white">
-                          {Math.max(1, Math.round(attachment.progress * 100))}%
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                ) : null}
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(5,8,22,0.76)',
-                    paddingHorizontal: 6,
-                    paddingVertical: 4,
-                  }}>
-                  <Text className="text-[10px] font-medium text-white/80" numberOfLines={1}>
-                    {attachment.status === 'uploading'
-                      ? 'Uploading…'
-                      : attachment.status === 'error'
-                        ? 'Failed'
-                        : attachment.label}
-                  </Text>
-                </View>
-              </InsetPanel>
-
-              <Pressable
-                onPress={() => removeAttachment(attachment.id)}
-                className="items-center justify-center rounded-full border border-white/12 bg-[#08101c]"
+  const attachmentStrip = attachments.length > 0 ? (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
+      {attachments.map((attachment) => (
+        <View key={attachment.id} style={{ position: 'relative' }}>
+          <InsetPanel
+            className="overflow-hidden"
+            radius="input"
+            padding="none"
+            style={{
+              width: 52,
+              height: 52,
+              opacity: attachment.status === 'uploading' ? 0.7 : 1,
+            }}>
+            <Image
+              source={{ uri: attachment.previewUri }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
+            {attachment.status === 'uploading' ? (
+              <View
                 style={{
                   position: 'absolute',
-                  top: -6,
-                  right: -6,
-                  width: 22,
-                  height: 22,
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'rgba(5,8,22,0.5)',
                 }}>
-                <Ionicons name="close" size={12} color="rgba(255,255,255,0.82)" />
-              </Pressable>
-            </View>
-          ))}
-        </ScrollView>
-      ) : null}
+                <Text className="text-[9px] font-semibold text-white">
+                  {Math.max(1, Math.round(attachment.progress * 100))}%
+                </Text>
+              </View>
+            ) : null}
+            {attachment.status === 'error' ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'rgba(5,8,22,0.7)',
+                }}>
+                <Ionicons name="alert-circle" size={16} color="#ff6a6a" />
+              </View>
+            ) : null}
+            {attachment.status === 'ready' ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  bottom: 2,
+                  right: 2,
+                }}>
+                <Ionicons name="checkmark-circle" size={14} color="#69f0b7" />
+              </View>
+            ) : null}
+          </InsetPanel>
+        </View>
+      ))}
+    </ScrollView>
+  ) : null;
+
+  return (
+    <View className="flex-1 bg-transparent">
+      {attachmentStrip}
+      {immediateMode ? (
+        <View className="min-h-[68px] flex-row items-center border-b border-white/10 bg-transparent" style={{ backgroundColor: 'rgba(5,8,22,0.62)' }}>
+          <Pressable
+            onPress={() => inputRef.current?.focus()}
+            className="flex-1 flex-row items-center gap-2 px-4 py-4">
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ff96cf' }} />
+            <Text className="text-[13px] font-semibold text-[#ff96cf]">Immediate mode</Text>
+            <Text className="text-[12px] text-white/40">— keystrokes stream to session</Text>
+            <View className="flex-1" />
+            <Ionicons name="keypad-outline" size={16} color="rgba(255,150,207,0.72)" />
+          </Pressable>
+          <RNTextInput
+            ref={inputRef}
+            value={immediateBuffer}
+            onChangeText={handleChangeText}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onKeyPress={handleKeyPress}
+            autoCapitalize="none"
+            autoCorrect={false}
+            smartInsertDelete={false}
+            spellCheck={false}
+            multiline
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              opacity: 0,
+              color: 'transparent',
+            }}
+          />
+        </View>
+      ) : (
+        <View className="min-h-[68px] flex-row items-stretch border-b border-white/10 bg-transparent">
+          <RNTextInput
+            ref={inputRef}
+            value={optimisticText}
+            onChangeText={handleChangeText}
+            selection={selection}
+            onFocus={() => {
+              console.log('[composer] onFocus');
+              setIsFocused(true);
+            }}
+            onBlur={() => {
+              console.log('[composer] onBlur');
+              setIsFocused(false);
+            }}
+            onKeyPress={handleKeyPress}
+            onSelectionChange={handleSelectionChange}
+            placeholder="Type…"
+            placeholderTextColor="rgba(255,255,255,0.32)"
+            autoCapitalize="none"
+            autoCorrect={false}
+            smartInsertDelete={false}
+            spellCheck={false}
+            multiline
+            textAlignVertical="top"
+            returnKeyType={multilineMode ? 'default' : 'send'}
+            submitBehavior={multilineMode ? 'newline' : 'submit'}
+            onSubmitEditing={multilineMode ? undefined : handleSubmitEditing}
+            style={{
+              flex: 1,
+              color: '#fff',
+              fontSize: 17,
+              paddingHorizontal: 16,
+              paddingVertical: 16,
+              backgroundColor: 'rgba(5,8,22,0.62)',
+            }}
+          />
+
+          <View
+            style={{
+              width: 72,
+              paddingRight: 6,
+              backgroundColor: 'rgba(5,8,22,0.62)',
+            }}>
+            <Pressable
+              onPress={handleSend}
+              disabled={disabled}
+              hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+              pressRetentionOffset={{ top: 16, bottom: 16, left: 16, right: 16 }}
+              className="flex-1 items-center justify-center bg-transparent"
+              style={({ pressed }) => ({
+                opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
+              })}>
+              <Ionicons name="arrow-up" size={18} color="#7cf6ff" />
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <View
         className="flex-row items-center gap-1.5 py-2.5"

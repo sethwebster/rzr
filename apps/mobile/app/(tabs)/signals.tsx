@@ -1,4 +1,5 @@
 import { useClerk } from '@clerk/expo';
+import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { Linking, Switch } from 'react-native';
@@ -20,6 +21,7 @@ import {
   prepareNotificationsAsync,
   registerForPushNotificationsAsync,
 } from '@/lib/notifications';
+import { verifyMagicLinkToken } from '@/lib/account';
 import { buildConnectHref } from '@/lib/utils';
 import { useAuth } from '@/providers/auth-provider';
 import { useActiveSession } from '@/hooks/use-session-data';
@@ -45,8 +47,10 @@ export default function SignalsScreen() {
   const { signals, loading: signalsLoading } = useSessionSignals(activeSession);
   const {
     user,
+    accessToken,
     remoteSessions,
     sendMagicLink,
+    completeMagicLink,
     refreshRemoteSessions,
     signOut,
     startCheckout,
@@ -56,6 +60,7 @@ export default function SignalsScreen() {
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [notificationSetup, setNotificationSetup] = useState<NotificationSetupState | null>(null);
   const [email, setEmail] = useState('');
+  const [tokenPaste, setTokenPaste] = useState('');
   const [authMessage, setAuthMessage] = useState<string>(
     'Magic link only. No password to remember.',
   );
@@ -218,6 +223,17 @@ export default function SignalsScreen() {
                   }}
                 />
               ) : null}
+              {accessToken ? (
+                <PremiumButton
+                  label="Copy token"
+                  icon="copy-outline"
+                  variant="secondary"
+                  onPress={async () => {
+                    await Clipboard.setStringAsync(accessToken);
+                    setAuthMessage('Token copied to clipboard.');
+                  }}
+                />
+              ) : null}
               <PremiumButton
                 label="Sign out"
                 icon="log-out-outline"
@@ -248,6 +264,54 @@ export default function SignalsScreen() {
                 className="flex-1"
                 onPress={handleSendMagicLink}
               />
+            </View>
+
+            <View className="mt-6">
+              <FieldPanel label="Paste magic link or token">
+                <TextInput
+                  value={tokenPaste}
+                  onChangeText={setTokenPaste}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="rzrmobile://auth?magic=… or token"
+                  placeholderTextColor="rgba(255,255,255,0.28)"
+                  className="text-[15px] text-white"
+                />
+              </FieldPanel>
+              <View className="mt-3">
+                <PremiumButton
+                  label={authBusy ? 'Signing in…' : 'Sign in with token'}
+                  icon="key-outline"
+                  disabled={!tokenPaste.trim() || authBusy}
+                  onPress={async () => {
+                    setAuthBusy(true);
+                    try {
+                      const raw = tokenPaste.trim();
+                      let sessionToken: string;
+                      const sessionMatch = raw.match(/[?&]session=([^&]+)/);
+                      const magicMatch = raw.match(/[?&](?:magic|token)=([^&]+)/);
+                      if (sessionMatch) {
+                        sessionToken = decodeURIComponent(sessionMatch[1]);
+                      } else if (magicMatch) {
+                        const result = await verifyMagicLinkToken(decodeURIComponent(magicMatch[1]));
+                        sessionToken = result.sessionToken;
+                      } else if (/^https?:\/\//i.test(raw) || raw.includes('://')) {
+                        throw new Error('Magic link URL did not contain a token.');
+                      } else {
+                        const result = await verifyMagicLinkToken(raw);
+                        sessionToken = result.sessionToken;
+                      }
+                      await completeMagicLink(sessionToken);
+                      setTokenPaste('');
+                      setAuthMessage('Signed in.');
+                    } catch (error) {
+                      setAuthMessage(error instanceof Error ? error.message : 'Token sign-in failed.');
+                    } finally {
+                      setAuthBusy(false);
+                    }
+                  }}
+                />
+              </View>
             </View>
           </>
         )}

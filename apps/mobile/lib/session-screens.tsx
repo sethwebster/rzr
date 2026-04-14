@@ -566,12 +566,12 @@ function ActiveTerminalSessionSurface({
             <View style={StyleSheet.absoluteFillObject}>
               <Animated.View style={[StyleSheet.absoluteFillObject, terminalKeyboardStyle]}>
                 {useExpoSwiftTerm ? (
-                  <View style={styles.webview}>
+                  <View style={[styles.webview, { paddingBottom: composerReservedHeight }]}>
                     <SwiftTerminalSessionViewer
                       sessionUrl={session.url}
                       authToken={session.authToken}
                       instanceKey={terminalInstanceKey}
-                      style={StyleSheet.absoluteFillObject}
+                      style={{ flex: 1 }}
                       onConnectionFailed={() => setTunnelOffline(true)}
                     />
                   </View>
@@ -633,7 +633,7 @@ function ActiveTerminalSessionSurface({
           <View style={styles.headerOverlay}>
             <GlassSafeAreaView
               topPadding={null}
-              contentClassName="px-5 pb-3 pt-10"
+              contentClassName="px-5 pb-3 pt-16"
               leftSlot={
                 <View className="flex-row items-center gap-2">
                   <SessionStatusDot session={headerSession} size="sm" />

@@ -140,10 +140,21 @@ export function useSwiftTermSocket(
         if (cancelled) return;
         failCountRef.current = 0;
         setStatusMessage('Connecting native terminal…');
-        const size = pendingSizeRef.current ?? { cols: 80, rows: 24 };
-        socket.send(JSON.stringify({ type: 'connect', cols: size.cols, rows: size.rows }));
 
-        // If we don't get 'ready' within 8s of open, treat as unreachable
+        // Wait for real terminal dimensions before sending connect.
+        // SwiftTerm fires onResize once it lays out, which sets
+        // pendingSizeRef. If it already fired, send immediately.
+        const trySendConnect = () => {
+          if (cancelled || socket.readyState !== WebSocket.OPEN) return;
+          const size = pendingSizeRef.current;
+          if (!size) {
+            setTimeout(trySendConnect, 50);
+            return;
+          }
+          socket.send(JSON.stringify({ type: 'connect', cols: size.cols, rows: size.rows }));
+        };
+        trySendConnect();
+
         readyTimer = setTimeout(() => {
           if (cancelled || didConnectRef.current) return;
           setStatusMessage('Session unreachable.');
@@ -167,13 +178,16 @@ export function useSwiftTermSocket(
             clearReadyTimer();
             didConnectRef.current = true;
             const screen = String(payload?.snapshot?.screen || '');
-            // SGR reset → clear screen → home cursor → feed tmux `-e` capture
-            // → SGR reset again. Use the binary feed path so control bytes
-            // (ESC, CR, etc.) are never string-escaped through JSON / RN
-            // prop marshalling — they go straight through as raw UTF-8 bytes.
             terminalRef.current?.write(
               encodeUtf8Base64(`\u001b[0m\u001b[2J\u001b[H${screen}\u001b[0m`),
             );
+            // The snapshot was captured at the server's current grid size,
+            // which may differ from ours. Re-send our real dimensions so the
+            // server resizes tmux and subsequent output is correct.
+            const size = pendingSizeRef.current;
+            if (size && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
+            }
             break;
           }
           case 'output':

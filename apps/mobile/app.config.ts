@@ -1,13 +1,15 @@
 import type { ExpoConfig } from 'expo/config';
 
+const IS_DEV = process.env.APP_VARIANT === 'development';
+
 const config: ExpoConfig = {
-  name: 'rzr mobile',
+  name: IS_DEV ? 'rzr dev' : 'rzr mobile',
   slug: 'rzr-mobile',
   version: '0.1.0',
   orientation: 'portrait',
   icon: './assets/images/app-icon.png',
   backgroundColor: '#000000',
-  scheme: 'rzrmobile',
+  scheme: IS_DEV ? 'rzrmobiledev' : 'rzrmobile',
   userInterfaceStyle: 'dark',
   splash: {
     image: './assets/images/app-icon.png',
@@ -26,7 +28,7 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: false,
     backgroundColor: '#000000',
-    bundleIdentifier: 'com.sethwebster.rzrmobile',
+    bundleIdentifier: IS_DEV ? 'com.sethwebster.rzrmobile.dev' : 'com.sethwebster.rzrmobile',
     associatedDomains: ['applinks:rzr.live', 'applinks:*.rzr.live'],
     infoPlist: {
       NSCameraUsageDescription:
@@ -50,7 +52,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    package: 'com.sethwebster.rzrmobile',
+    package: IS_DEV ? 'com.sethwebster.rzrmobile.dev' : 'com.sethwebster.rzrmobile',
     backgroundColor: '#000000',
     adaptiveIcon: {
       backgroundColor: '#050816',
@@ -80,7 +82,7 @@ const config: ExpoConfig = {
     'expo-router',
     '@clerk/expo',
     'expo-secure-store',
-    [
+    ...(!IS_DEV ? [[
       'expo-widgets',
       {
         enablePushNotifications: true,
@@ -101,7 +103,7 @@ const config: ExpoConfig = {
           },
         ],
       },
-    ],
+    ]] : []),
     [
       'expo-camera',
       {
@@ -135,7 +137,7 @@ const config: ExpoConfig = {
         backgroundColor: '#000000',
       },
     ],
-    './plugins/widget-assets',
+    ...(!IS_DEV ? ['./plugins/widget-assets'] : []),
   ],
   experiments: {
     typedRoutes: false,
@@ -148,7 +150,7 @@ const config: ExpoConfig = {
     rzr: {
       demoUrl: 'https://demo.free.rzr.live/?token=glass-cyan-preview',
       gatewayBaseUrl: process.env.EXPO_PUBLIC_RZR_GATEWAY_BASE_URL ?? 'https://api.rzr.live',
-      authRedirectUrl: process.env.EXPO_PUBLIC_RZR_AUTH_REDIRECT_URL ?? 'rzrmobile://auth',
+      authRedirectUrl: process.env.EXPO_PUBLIC_RZR_AUTH_REDIRECT_URL ?? (IS_DEV ? 'rzrmobiledev://auth' : 'rzrmobile://auth'),
     },
   },
 };

@@ -22,7 +22,9 @@
     "mobile:android": "cd apps/mobile && bun run android",
     "mobile:web": "cd apps/mobile && bun run web",
     "mobile:lint": "cd apps/mobile && bun run lint",
-    "mobile:typecheck": "cd apps/mobile && bun run typecheck"
+    "mobile:typecheck": "cd apps/mobile && bun run typecheck",
+    "mobile:ota:preview": "cd apps/mobile && bun run ota:preview",
+    "mobile:ota:production": "cd apps/mobile && bun run ota:production"
   },
   "overrides": {
     "lightningcss": "1.30.1"
